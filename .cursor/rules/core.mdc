@@ -1,0 +1,204 @@
+---
+alwaysApply: true
+---
+
+# WhatsApp Content Scheduler - Core Principles (2025)
+
+## Project Overview
+A content scheduling webapp for scheduling text, images, and videos to WhatsApp channels via Maytapi API. Built for a law firm specializing in Securities Class Action lawsuits.
+
+### Key Features
+- **Entity Management**: Create/manage legal case collections with company info, media, and dates
+- **Smart Scheduling**: Auto-schedule posts with content rotation and priority-based frequency
+- **Lead Plaintiff Priority**: Increase posting frequency as Lead Plaintiff date approaches
+- **Content Rotation**: Automatically rotate between images, videos, text to prevent repetition
+- **Maytapi Integration**: Post to WhatsApp channels via Maytapi API
+
+## Stack Overview
+- **Framework**: Next.js 15+ (App Router)
+- **Language**: TypeScript (strict mode)
+- **Styling**: Tailwind CSS with CSS Variables
+- **Database**: MongoDB with Mongoose ODM
+- **Auth**: Custom JWT Authentication (jose + HTTP-only cookies)
+- **Job Scheduling**: node-cron for scheduled posts
+- **WhatsApp API**: Maytapi
+- **File Storage**: Cloudinary or AWS S3 for media
+- **Icons**: lucide-react
+- **Deployment**: Vercel
+
+---
+
+## File Structure
+```
+app/
+├─ auth/
+│  ├─ login/page.tsx
+│  └─ register/page.tsx
+├─ (dashboard)/              # Protected dashboard routes
+│  ├─ layout.tsx             # Dashboard layout with sidebar
+│  ├─ page.tsx               # Dashboard home
+│  ├─ entities/
+│  │  ├─ page.tsx            # Entity list
+│  │  ├─ new/page.tsx        # Create entity
+│  │  └─ [id]/
+│  │     ├─ page.tsx         # Entity details
+│  │     └─ edit/page.tsx    # Edit entity
+│  ├─ calendar/
+│  │  └─ page.tsx            # Calendar view of scheduled posts
+│  ├─ schedule-settings/
+│  │  └─ page.tsx            # Time slots & scheduling preferences
+│  └─ templates/
+│     └─ page.tsx            # Message templates
+├─ api/
+│  ├─ auth/
+│  │  ├─ login/route.ts
+│  │  ├─ register/route.ts
+│  │  ├─ logout/route.ts
+│  │  └─ me/route.ts
+│  ├─ entities/
+│  │  ├─ route.ts            # GET all, POST create
+│  │  └─ [id]/
+│  │     ├─ route.ts         # GET, PUT, DELETE single
+│  │     └─ media/route.ts   # Upload media to entity
+│  ├─ posts/
+│  │  ├─ route.ts            # GET all posts, POST manual post
+│  │  └─ [id]/route.ts       # GET, DELETE single post
+│  ├─ schedule/
+│  │  ├─ route.ts            # GET schedule, POST generate weekly schedule
+│  │  ├─ auto-generate/route.ts  # Auto-generate week schedule
+│  │  └─ settings/route.ts   # GET, PUT schedule settings
+│  ├─ templates/
+│  │  └─ route.ts            # GET, POST, PUT, DELETE templates
+│  ├─ maytapi/
+│  │  ├─ send/route.ts       # Send message via Maytapi
+│  │  └─ webhook/route.ts    # Maytapi webhooks
+│  └─ cron/
+│     └─ process-queue/route.ts  # Process scheduled posts (called by cron)
+├─ layout.tsx
+└─ page.tsx                  # Landing page
+
+components/
+├─ ui/                       # shadcn/ui components
+├─ dashboard/
+│  ├─ Sidebar.tsx
+│  ├─ Header.tsx
+│  └─ StatsCards.tsx
+├─ entities/
+│  ├─ EntityCard.tsx
+│  ├─ EntityForm.tsx
+│  ├─ MediaUploader.tsx
+│  └─ EntityList.tsx
+├─ calendar/
+│  ├─ CalendarView.tsx
+│  ├─ PostPreview.tsx
+│  └─ TimeSlotPicker.tsx
+├─ schedule/
+│  ├─ ScheduleGenerator.tsx
+│  ├─ PriorityIndicator.tsx
+│  └─ ContentRotator.tsx
+└─ AuthProvider.tsx
+
+lib/
+├─ db/
+│  ├─ connect.ts
+│  └─ models/
+│     ├─ User.ts
+│     ├─ Entity.ts
+│     ├─ ScheduledPost.ts
+│     ├─ PostHistory.ts
+│     ├─ ScheduleSettings.ts
+│     ├─ MessageTemplate.ts
+│     └─ index.ts
+├─ auth/
+│  ├─ jwt.ts
+│  ├─ session.ts
+│  └─ password.ts
+├─ maytapi/
+│  ├─ client.ts              # Maytapi API client
+│  ├─ types.ts               # Maytapi types
+│  └─ utils.ts               # Helper functions
+├─ scheduler/
+│  ├─ generator.ts           # Schedule generation logic
+│  ├─ priority.ts            # Priority calculation
+│  ├─ rotation.ts            # Content rotation logic
+│  └─ processor.ts           # Process and send posts
+├─ utils/
+│  ├─ date.ts                # Date utilities
+│  ├─ media.ts               # Media handling
+│  └─ helpers.ts
+├─ types.ts
+└─ constants.ts
+
+middleware.ts
+```
+
+## Environment Variables
+```bash
+# .env.local
+
+# MongoDB
+MONGODB_URI=mongodb+srv://...
+
+# Auth
+JWT_SECRET=your-super-secret-jwt-key-min-32-chars
+
+# Maytapi
+MAYTAPI_PRODUCT_ID=your-product-id
+MAYTAPI_PHONE_ID=your-phone-id
+MAYTAPI_API_TOKEN=your-api-token
+
+# Cloudinary (for media storage)
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+
+# Cron (for Vercel cron jobs)
+CRON_SECRET=your-cron-secret
+
+# App
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+## Key Implementation Notes
+
+### Priority-Based Scheduling Rules
+1. **Critical Priority** (≤7 days to deadline): 3x posting frequency
+2. **High Priority** (≤14 days): 2x posting frequency
+3. **Medium Priority** (≤30 days): 1.5x posting frequency
+4. **Low Priority** (>30 days): 1x posting frequency
+
+### Content Rotation Rules
+1. Track usage count and last used date for each media
+2. Hash content to prevent exact duplicates within recent posts
+3. Weight distribution: Images (40%), Videos (30%), Text (20%), Links (10%)
+4. Never post the same content for an entity within 20 posts
+
+### Auto-Schedule Features
+1. Generate schedule 7 days in advance
+2. Preserve manually scheduled posts
+3. Cancel and regenerate auto-generated posts when regenerating
+4. Consider timezone for accurate scheduling
+
+### Vercel Cron Configuration
+```json
+// vercel.json
+{
+  "crons": [
+    {
+      "path": "/api/cron/process-queue",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/auto-generate-weekly",
+      "schedule": "0 0 * * 0"
+    }
+  ]
+}
+```
+
+**Remember**: This app requires careful handling of:
+- **Lead Plaintiff Dates**: Core business logic driver
+- **Content Rotation**: Prevent repetition across entities
+- **Priority Scoring**: Dynamic based on time-sensitivity
+- **Maytapi Rate Limits**: Implement queuing and retries
+- **Timezone Handling**: Use date-fns-tz for consistency

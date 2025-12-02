@@ -1,26 +1,104 @@
+@import "tailwindcss/preflight";
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
 @import "tailwindcss";
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* WhatsApp Color Palette */
+  --whatsapp-dark-teal: #075e54;
+  --whatsapp-teal: #128c7e;
+  --whatsapp-green: #25d366;
+  --whatsapp-light-green: #dcf8c6;
+  --whatsapp-beige: #ece5dd;
+
+  /* Legacy colors */
+  --primary: #5d9de5;
+  --secondary: #ffcc44;
+  --dark-blue: #134580;
+  --blue: #126bcf;
+  --red: #ff483a;
+  --light-blue: #5d9de5;
+  --light-blue-2: #66cddc;
+  --light-blue-3: #ade2ef;
+  --light-blue-4: #dbf8fc;
+  --pink: #fe9bb7;
+  --light-pink: #fee3ea;
+  --gray: #F7F8F9;
+  --dark-green: #014550;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@theme {
+  /* WhatsApp Colors for Tailwind */
+  --color-whatsapp-dark-teal: var(--whatsapp-dark-teal);
+  --color-whatsapp-teal: var(--whatsapp-teal);
+  --color-whatsapp-green: var(--whatsapp-green);
+  --color-whatsapp-light-green: var(--whatsapp-light-green);
+  --color-whatsapp-beige: var(--whatsapp-beige);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Legacy colors */
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-dark-blue: var(--dark-blue);
+  --color-blue: var(--blue);
+  --color-red: var(--red);
+  --color-light-blue: var(--light-blue);
+  --color-light-blue-2: var(--light-blue-2);
+  --color-light-blue-3: var(--light-blue-3);
+  --color-light-blue-4: var(--light-blue-4);
+  --color-pink: var(--pink);
+  --color-light-pink: var(--light-pink);
+  --color-gray: var(--gray);
+  --color-dark-green: var(--dark-green);
+
+  --max-width-100: 100rem;
+
+  /* horizontal breakpoint */
+  --breakpoint-3xl: 2560px;
+
+  /* Vertical breakpoint */
+  --breakpoint-vertical: 640px;
+  --breakpoint-vertical-sm: 768px;
+  --breakpoint-vertical-md: 1024px;
+  --breakpoint-vertical-lg: 1280px;
+  --breakpoint-vertical-xl: 1536px;
+  --breakpoint-vertical-2xl: 1920px;
+  --breakpoint-vertical-3xl: 2560px;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Ubuntu, Helvetica, sans-serif;
+  overflow-x: hidden !important;
+}
+
+.triangle-down {
+	width: 0;
+	height: 0;
+	border-left: 20px solid transparent;
+	border-right: 20px solid transparent;
+	border-top: 10px solid var(--pink);
+}
+
+.triangle-down-long {
+  width: 0;
+  height: 0;
+  border-left: 20px solid transparent;
+  border-right: 20px solid transparent;
+  border-top: 30px solid var(--color-white);
+}
+
+.text-last-center {
+  text-align-last: center;
+}
+
+button, a {
+  cursor: pointer;
 }

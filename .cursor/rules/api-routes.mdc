@@ -1,0 +1,422 @@
+---
+alwaysApply: true
+---
+
+# API Route Patterns
+
+## Entity CRUD Pattern
+```typescript
+// app/api/entities/route.ts
+import { NextResponse } from 'next/server';
+import { connectDB } from '@/lib/db/connect';
+import { Entity } from '@/lib/db/models/Entity';
+import { getSession } from '@/lib/auth/session';
+
+export async function GET(req: Request) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  await connectDB();
+
+  const { searchParams } = new URL(req.url);
+  const status = searchParams.get('status') || 'active';
+  const page = parseInt(searchParams.get('page') || '1');
+  const limit = parseInt(searchParams.get('limit') || '20');
+  const sortBy = searchParams.get('sortBy') || 'leadPlaintiffDate';
+
+  const query = { userId: session.user.id, status };
+  
+  const [entities, total] = await Promise.all([
+    Entity.find(query)
+      .sort({ [sortBy]: sortBy === 'leadPlaintiffDate' ? 1 : -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    Entity.countDocuments(query),
+  ]);
+
+  return NextResponse.json({
+    entities,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  });
+}
+
+export async function POST(req: Request) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  await connectDB();
+
+  const body = await req.json();
+  const { 
+    companyName, 
+    tickerSymbol, 
+    leadPlaintiffDate, 
+    caseDate,
+    description,
+    youtubeLink,
+    podcastLink,
+    articleLinks,
+  } = body;
+
+  if (!companyName || !tickerSymbol || !leadPlaintiffDate || !caseDate) {
+    return NextResponse.json(
+      { error: 'Missing required fields' },
+      { status: 400 }
+    );
+  }
+
+  const entity = await Entity.create({
+    userId: session.user.id,
+    companyName,
+    tickerSymbol: tickerSymbol.toUpperCase(),
+    leadPlaintiffDate: new Date(leadPlaintiffDate),
+    caseDate: new Date(caseDate),
+    description,
+    youtubeLink,
+    podcastLink,
+    articleLinks: articleLinks || [],
+    images: [],
+    videos: [],
+  });
+
+  return NextResponse.json(entity, { status: 201 });
+}
+```
+
+## Schedule Generation Endpoint
+```typescript
+// app/api/schedule/auto-generate/route.ts
+import { NextResponse } from 'next/server';
+import { getSession } from '@/lib/auth/session';
+import { generateWeeklySchedule } from '@/lib/scheduler/generator';
+
+export async function POST(req: Request) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const body = await req.json();
+    const weekStartDate = body.weekStartDate 
+      ? new Date(body.weekStartDate) 
+      : undefined;
+
+    const postsCreated = await generateWeeklySchedule({
+      userId: session.user.id,
+      weekStartDate,
+    });
+
+    return NextResponse.json({
+      success: true,
+      postsCreated,
+      message: `Successfully scheduled ${postsCreated} posts`,
+    });
+  } catch (error) {
+    console.error('Schedule generation error:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to generate schedule' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+## Cron Job Processor
+```typescript
+// app/api/cron/process-queue/route.ts
+import { NextResponse } from 'next/server';
+import { connectDB } from '@/lib/db/connect';
+import { ScheduledPost } from '@/lib/db/models/ScheduledPost';
+import { PostHistory } from '@/lib/db/models/PostHistory';
+import { Entity } from '@/lib/db/models/Entity';
+import { ScheduleSettings } from '@/lib/db/models/ScheduleSettings';
+import { getMaytapiClient } from '@/lib/maytapi/client';
+
+// This endpoint is called by a cron job (e.g., Vercel Cron)
+// Configure in vercel.json: { "crons": [{ "path": "/api/cron/process-queue", "schedule": "*/5 * * * *" }] }
+
+export async function GET(req: Request) {
+  // Verify cron secret
+  const authHeader = req.headers.get('authorization');
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  await connectDB();
+
+  const now = new Date();
+  
+  // Find posts that should be sent
+  const postsToSend = await ScheduledPost.find({
+    status: 'scheduled',
+    scheduledAt: { $lte: now },
+  }).limit(10);
+
+  const results: { postId: string; success: boolean; error?: string }[] = [];
+
+  for (const post of postsToSend) {
+    try {
+      // Mark as processing
+      post.status = 'processing';
+      await post.save();
+
+      // Get user settings for Maytapi config
+      const settings = await ScheduleSettings.findOne({ userId: post.userId });
+      if (!settings) {
+        throw new Error('Settings not found');
+      }
+
+      const maytapi = getMaytapiClient();
+      let response;
+
+      // Send based on content type
+      if (post.contentType === 'image' || post.contentType === 'video') {
+        response = await maytapi.sendMediaMessage(
+          settings.whatsappChannelId,
+          post.mediaUrl!,
+          post.message
+        );
+      } else if (post.link) {
+        response = await maytapi.sendLinkMessage(
+          settings.whatsappChannelId,
+          post.message,
+          post.link
+        );
+      } else {
+        response = await maytapi.sendTextMessage(
+          settings.whatsappChannelId,
+          post.message
+        );
+      }
+
+      if (response.success) {
+        // Update post status
+        post.status = 'sent';
+        post.sentAt = new Date();
+        post.maytapiMessageId = response.data?.msgId;
+        await post.save();
+
+        // Create history record
+        await PostHistory.create({
+          userId: post.userId,
+          entityId: post.entityId,
+          scheduledPostId: post._id,
+          contentType: post.contentType,
+          mediaUrl: post.mediaUrl,
+          message: post.message,
+          sentAt: new Date(),
+          maytapiMessageId: response.data?.msgId || '',
+          contentHash: `${post.contentType}:${post.mediaUrl || post.link || post.message}`,
+        });
+
+        // Update entity stats
+        await Entity.findByIdAndUpdate(post.entityId, {
+          $inc: { totalPostCount: 1 },
+          $set: { lastPostedAt: new Date() },
+        });
+
+        results.push({ postId: post._id.toString(), success: true });
+      } else {
+        throw new Error(response.message || 'Maytapi send failed');
+      }
+    } catch (error) {
+      post.status = 'failed';
+      post.errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      await post.save();
+      
+      results.push({ 
+        postId: post._id.toString(), 
+        success: false, 
+        error: post.errorMessage 
+      });
+    }
+  }
+
+  return NextResponse.json({
+    processed: results.length,
+    results,
+  });
+}
+```
+
+## MongoDB Connection Pattern
+```typescript
+// lib/db/connect.ts
+import mongoose from 'mongoose';
+
+const MONGODB_URI = process.env.MONGODB_URI!;
+
+if (!MONGODB_URI) {
+  throw new Error('Please define MONGODB_URI environment variable');
+}
+
+interface MongooseCache {
+  conn: typeof mongoose | null;
+  promise: Promise<typeof mongoose> | null;
+}
+
+declare global {
+  var mongoose: MongooseCache | undefined;
+}
+
+const cached: MongooseCache = global.mongoose || { conn: null, promise: null };
+
+if (!global.mongoose) {
+  global.mongoose = cached;
+}
+
+export async function connectDB(): Promise<typeof mongoose> {
+  if (cached.conn) {
+    return cached.conn;
+  }
+
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(MONGODB_URI);
+  }
+
+  cached.conn = await cached.promise;
+  return cached.conn;
+}
+```
+
+## Auth Session Pattern
+```typescript
+// lib/auth/session.ts
+import { getAuthCookie, verifyToken, JWTPayload } from './jwt';
+
+export interface Session {
+  user: {
+    id: string;
+    email: string;
+    name: string;
+  };
+}
+
+export async function getSession(): Promise<Session | null> {
+  const token = await getAuthCookie();
+  if (!token) return null;
+
+  const payload = await verifyToken(token);
+  if (!payload) return null;
+
+  return {
+    user: {
+      id: payload.userId,
+      email: payload.email,
+      name: payload.name,
+    },
+  };
+}
+```
+
+## JWT Utilities Pattern
+```typescript
+// lib/auth/jwt.ts
+import { SignJWT, jwtVerify } from 'jose';
+import { cookies } from 'next/headers';
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
+const TOKEN_NAME = 'auth-token';
+
+export interface JWTPayload {
+  userId: string;
+  email: string;
+  name: string;
+}
+
+export async function signToken(payload: JWTPayload): Promise<string> {
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('7d')
+    .sign(JWT_SECRET);
+}
+
+export async function verifyToken(token: string): Promise<JWTPayload | null> {
+  try {
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    return payload as unknown as JWTPayload;
+  } catch {
+    return null;
+  }
+}
+
+export async function setAuthCookie(token: string): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set(TOKEN_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 24 * 7, // 7 days
+    path: '/',
+  });
+}
+
+export async function removeAuthCookie(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(TOKEN_NAME);
+}
+
+export async function getAuthCookie(): Promise<string | undefined> {
+  const cookieStore = await cookies();
+  return cookieStore.get(TOKEN_NAME)?.value;
+}
+```
+
+## Middleware Pattern
+```typescript
+// middleware.ts
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { jwtVerify } from 'jose';
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
+const TOKEN_NAME = 'auth-token';
+
+const protectedRoutes = ['/dashboard', '/entities', '/calendar', '/templates', '/schedule-settings'];
+const authRoutes = ['/auth/login', '/auth/register'];
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const token = request.cookies.get(TOKEN_NAME)?.value;
+
+  let isAuthenticated = false;
+  if (token) {
+    try {
+      await jwtVerify(token, JWT_SECRET);
+      isAuthenticated = true;
+    } catch {
+      isAuthenticated = false;
+    }
+  }
+
+  // Redirect authenticated users away from auth pages
+  if (isAuthenticated && authRoutes.some(route => pathname.startsWith(route))) {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
+
+  // Redirect unauthenticated users to login
+  if (!isAuthenticated && protectedRoutes.some(route => pathname.startsWith(route))) {
+    const loginUrl = new URL('/auth/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+};
+```

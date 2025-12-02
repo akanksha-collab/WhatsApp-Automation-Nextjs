@@ -1,0 +1,478 @@
+---
+alwaysApply: true
+---
+
+# Maytapi Integration & Scheduler Logic
+
+## Maytapi Client
+```typescript
+// lib/maytapi/client.ts
+const MAYTAPI_BASE_URL = 'https://api.maytapi.com/api';
+
+interface MaytapiConfig {
+  productId: string;
+  phoneId: string;
+  apiToken: string;
+}
+
+interface SendMessagePayload {
+  to_number: string;
+  type: 'text' | 'media';
+  message?: string;
+  media_url?: string;
+  caption?: string;
+}
+
+interface MaytapiResponse {
+  success: boolean;
+  message?: string;
+  data?: {
+    msgId: string;
+    [key: string]: unknown;
+  };
+}
+
+export class MaytapiClient {
+  private productId: string;
+  private phoneId: string;
+  private apiToken: string;
+
+  constructor(config: MaytapiConfig) {
+    this.productId = config.productId;
+    this.phoneId = config.phoneId;
+    this.apiToken = config.apiToken;
+  }
+
+  private get baseUrl(): string {
+    return `${MAYTAPI_BASE_URL}/${this.productId}/${this.phoneId}`;
+  }
+
+  private get headers(): HeadersInit {
+    return {
+      'Content-Type': 'application/json',
+      'x-maytapi-key': this.apiToken,
+    };
+  }
+
+  async sendTextMessage(channelId: string, message: string): Promise<MaytapiResponse> {
+    const response = await fetch(`${this.baseUrl}/sendMessage`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        to_number: channelId,
+        type: 'text',
+        message,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async sendMediaMessage(
+    channelId: string,
+    mediaUrl: string,
+    caption?: string
+  ): Promise<MaytapiResponse> {
+    const response = await fetch(`${this.baseUrl}/sendMessage`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        to_number: channelId,
+        type: 'media',
+        message: mediaUrl,
+        text: caption,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async sendLinkMessage(
+    channelId: string,
+    message: string,
+    linkUrl: string
+  ): Promise<MaytapiResponse> {
+    const fullMessage = `${message}\n\n${linkUrl}`;
+    return this.sendTextMessage(channelId, fullMessage);
+  }
+}
+
+// Singleton instance
+let maytapiClient: MaytapiClient | null = null;
+
+export function getMaytapiClient(): MaytapiClient {
+  if (!maytapiClient) {
+    maytapiClient = new MaytapiClient({
+      productId: process.env.MAYTAPI_PRODUCT_ID!,
+      phoneId: process.env.MAYTAPI_PHONE_ID!,
+      apiToken: process.env.MAYTAPI_API_TOKEN!,
+    });
+  }
+  return maytapiClient;
+}
+```
+
+## Priority Calculator
+```typescript
+// lib/scheduler/priority.ts
+import { IEntityDocument } from '@/lib/db/models/Entity';
+import { IScheduleSettingsDocument } from '@/lib/db/models/ScheduleSettings';
+
+export type PriorityLevel = 'critical' | 'high' | 'medium' | 'low';
+
+export interface EntityPriority {
+  entity: IEntityDocument;
+  priorityLevel: PriorityLevel;
+  daysUntilDeadline: number;
+  frequencyMultiplier: number;
+  score: number;
+}
+
+export function calculatePriority(
+  entity: IEntityDocument,
+  settings: IScheduleSettingsDocument
+): EntityPriority {
+  const now = new Date();
+  const leadDate = new Date(entity.leadPlaintiffDate);
+  const daysUntil = Math.ceil((leadDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  
+  let priorityLevel: PriorityLevel;
+  let frequencyMultiplier: number;
+  
+  if (daysUntil <= 0) {
+    // Past deadline - completed
+    priorityLevel = 'low';
+    frequencyMultiplier = settings.frequencyMultipliers.low;
+  } else if (daysUntil <= settings.priorityThresholds.highPriority) {
+    priorityLevel = 'critical';
+    frequencyMultiplier = settings.frequencyMultipliers.critical;
+  } else if (daysUntil <= settings.priorityThresholds.mediumPriority) {
+    priorityLevel = 'high';
+    frequencyMultiplier = settings.frequencyMultipliers.high;
+  } else if (daysUntil <= settings.priorityThresholds.lowPriority) {
+    priorityLevel = 'medium';
+    frequencyMultiplier = settings.frequencyMultipliers.medium;
+  } else {
+    priorityLevel = 'low';
+    frequencyMultiplier = settings.frequencyMultipliers.low;
+  }
+  
+  // Calculate score (higher = more urgent)
+  // Score considers: days until deadline, total post count (fewer posts = higher priority)
+  const urgencyScore = daysUntil > 0 ? (100 / daysUntil) : 0;
+  const postCountPenalty = entity.totalPostCount * 0.1;
+  const score = (urgencyScore * frequencyMultiplier) - postCountPenalty;
+  
+  return {
+    entity,
+    priorityLevel,
+    daysUntilDeadline: daysUntil,
+    frequencyMultiplier,
+    score: Math.max(0, score),
+  };
+}
+
+export function sortByPriority(entities: EntityPriority[]): EntityPriority[] {
+  return entities.sort((a, b) => b.score - a.score);
+}
+```
+
+## Content Rotation Logic
+```typescript
+// lib/scheduler/rotation.ts
+import { IEntityDocument, IMedia } from '@/lib/db/models/Entity';
+import { IScheduleSettingsDocument } from '@/lib/db/models/ScheduleSettings';
+import { PostHistory } from '@/lib/db/models/PostHistory';
+import { ContentType } from '@/lib/db/models/ScheduledPost';
+import crypto from 'crypto';
+
+interface ContentSelection {
+  contentType: ContentType;
+  mediaUrl?: string;
+  mediaPublicId?: string;
+  link?: string;
+  contentHash: string;
+}
+
+export async function selectContent(
+  entity: IEntityDocument,
+  settings: IScheduleSettingsDocument
+): Promise<ContentSelection | null> {
+  // Get recent posts for this entity to avoid repetition
+  const recentPosts = await PostHistory.find({ entityId: entity._id })
+    .sort({ sentAt: -1 })
+    .limit(20)
+    .lean();
+  
+  const recentHashes = new Set(recentPosts.map(p => p.contentHash));
+  
+  // Build weighted content pool
+  const contentPool: ContentSelection[] = [];
+  const weights = settings.contentRotation;
+  
+  // Add images
+  for (const img of entity.images) {
+    const hash = generateHash('image', img.url);
+    if (!recentHashes.has(hash)) {
+      for (let i = 0; i < weights.imageWeight; i++) {
+        contentPool.push({
+          contentType: 'image',
+          mediaUrl: img.url,
+          mediaPublicId: img.publicId,
+          contentHash: hash,
+        });
+      }
+    }
+  }
+  
+  // Add videos
+  for (const vid of entity.videos) {
+    const hash = generateHash('video', vid.url);
+    if (!recentHashes.has(hash)) {
+      for (let i = 0; i < weights.videoWeight; i++) {
+        contentPool.push({
+          contentType: 'video',
+          mediaUrl: vid.url,
+          mediaPublicId: vid.publicId,
+          contentHash: hash,
+        });
+      }
+    }
+  }
+  
+  // Add YouTube link
+  if (entity.youtubeLink) {
+    const hash = generateHash('youtube', entity.youtubeLink);
+    if (!recentHashes.has(hash)) {
+      for (let i = 0; i < weights.linkWeight; i++) {
+        contentPool.push({
+          contentType: 'youtube',
+          link: entity.youtubeLink,
+          contentHash: hash,
+        });
+      }
+    }
+  }
+  
+  // Add Podcast link
+  if (entity.podcastLink) {
+    const hash = generateHash('podcast', entity.podcastLink);
+    if (!recentHashes.has(hash)) {
+      for (let i = 0; i < weights.linkWeight; i++) {
+        contentPool.push({
+          contentType: 'podcast',
+          link: entity.podcastLink,
+          contentHash: hash,
+        });
+      }
+    }
+  }
+  
+  // Add article links
+  for (const article of entity.articleLinks) {
+    const hash = generateHash('article', article);
+    if (!recentHashes.has(hash)) {
+      for (let i = 0; i < weights.linkWeight; i++) {
+        contentPool.push({
+          contentType: 'article',
+          link: article,
+          contentHash: hash,
+        });
+      }
+    }
+  }
+  
+  // Add text-only option
+  const textHash = generateHash('text', entity.companyName);
+  if (!recentHashes.has(textHash)) {
+    for (let i = 0; i < weights.textWeight; i++) {
+      contentPool.push({
+        contentType: 'text',
+        contentHash: textHash,
+      });
+    }
+  }
+  
+  // Select random content from pool
+  if (contentPool.length === 0) return null;
+  
+  const randomIndex = Math.floor(Math.random() * contentPool.length);
+  return contentPool[randomIndex];
+}
+
+function generateHash(type: string, content: string): string {
+  return crypto.createHash('md5').update(`${type}:${content}`).digest('hex');
+}
+```
+
+## Schedule Generator
+```typescript
+// lib/scheduler/generator.ts
+import { connectDB } from '@/lib/db/connect';
+import { Entity } from '@/lib/db/models/Entity';
+import { ScheduledPost } from '@/lib/db/models/ScheduledPost';
+import { ScheduleSettings } from '@/lib/db/models/ScheduleSettings';
+import { MessageTemplate } from '@/lib/db/models/MessageTemplate';
+import { calculatePriority, sortByPriority, EntityPriority } from './priority';
+import { selectContent } from './rotation';
+import { addDays, setHours, setMinutes, startOfWeek, format } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
+
+interface GenerateWeeklyScheduleParams {
+  userId: string;
+  weekStartDate?: Date;
+}
+
+export async function generateWeeklySchedule({
+  userId,
+  weekStartDate,
+}: GenerateWeeklyScheduleParams): Promise<number> {
+  await connectDB();
+  
+  // Get user's schedule settings
+  const settings = await ScheduleSettings.findOne({ userId });
+  if (!settings) throw new Error('Schedule settings not configured');
+  
+  // Get all active entities
+  const entities = await Entity.find({ userId, status: 'active', isActive: true });
+  if (entities.length === 0) return 0;
+  
+  // Calculate priority for each entity
+  const prioritizedEntities = entities.map(e => calculatePriority(e, settings));
+  const sortedEntities = sortByPriority(prioritizedEntities);
+  
+  // Get templates
+  const templates = await MessageTemplate.find({ userId, isActive: true });
+  
+  // Determine week start
+  const weekStart = weekStartDate || startOfWeek(new Date(), { weekStartsOn: 1 });
+  
+  // Cancel existing scheduled posts for this week
+  await ScheduledPost.deleteMany({
+    userId,
+    status: 'scheduled',
+    isAutoGenerated: true,
+    scheduledAt: {
+      $gte: weekStart,
+      $lt: addDays(weekStart, 7),
+    },
+  });
+  
+  // Generate posts for each day
+  const postsToCreate: Partial<ScheduledPost>[] = [];
+  
+  for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+    const currentDate = addDays(weekStart, dayOffset);
+    const dayName = format(currentDate, 'EEEE').toLowerCase();
+    
+    // Get day settings
+    const daySettings = settings.weeklySchedule.find(d => d.day === dayName);
+    if (!daySettings?.isActive) continue;
+    
+    // Get active time slots for this day
+    const activeSlots = daySettings.timeSlots.filter(s => s.isActive);
+    
+    // Distribute entities across time slots based on priority
+    const slotsWithPosts = distributeEntities(
+      sortedEntities,
+      activeSlots,
+      currentDate,
+      settings.timezone
+    );
+    
+    for (const slot of slotsWithPosts) {
+      if (!slot.entity) continue;
+      
+      // Select content for this entity
+      const content = await selectContent(slot.entity.entity, settings);
+      if (!content) continue;
+      
+      // Get appropriate template
+      const template = templates.find(t => 
+        t.contentType === content.contentType || t.isDefault
+      );
+      
+      // Generate message from template
+      const message = template 
+        ? applyTemplate(template.template, slot.entity.entity)
+        : generateDefaultMessage(slot.entity.entity);
+      
+      postsToCreate.push({
+        userId,
+        entityId: slot.entity.entity._id.toString(),
+        contentType: content.contentType,
+        mediaUrl: content.mediaUrl,
+        mediaPublicId: content.mediaPublicId,
+        message,
+        link: content.link,
+        scheduledAt: slot.scheduledTime,
+        scheduledDay: dayName,
+        timeSlotId: slot.slotId,
+        status: 'scheduled',
+        priority: slot.entity.score,
+        isAutoGenerated: true,
+      });
+    }
+  }
+  
+  // Bulk insert posts
+  if (postsToCreate.length > 0) {
+    await ScheduledPost.insertMany(postsToCreate);
+  }
+  
+  return postsToCreate.length;
+}
+
+function distributeEntities(
+  entities: EntityPriority[],
+  slots: { id: string; time: string }[],
+  date: Date,
+  timezone: string
+): { slotId: string; scheduledTime: Date; entity: EntityPriority | null }[] {
+  const result: { slotId: string; scheduledTime: Date; entity: EntityPriority | null }[] = [];
+  
+  // Create a pool of entities weighted by priority
+  const entityPool: EntityPriority[] = [];
+  for (const entity of entities) {
+    // Add entity multiple times based on frequency multiplier
+    const count = Math.ceil(entity.frequencyMultiplier);
+    for (let i = 0; i < count; i++) {
+      entityPool.push(entity);
+    }
+  }
+  
+  // Shuffle pool for randomness while maintaining priority bias
+  const shuffled = entityPool.sort(() => Math.random() - 0.5);
+  
+  let entityIndex = 0;
+  for (const slot of slots) {
+    const [hours, minutes] = slot.time.split(':').map(Number);
+    let scheduledTime = setHours(setMinutes(date, minutes), hours);
+    scheduledTime = toZonedTime(scheduledTime, timezone);
+    
+    result.push({
+      slotId: slot.id,
+      scheduledTime,
+      entity: shuffled[entityIndex] || null,
+    });
+    
+    entityIndex = (entityIndex + 1) % shuffled.length;
+  }
+  
+  return result;
+}
+
+function applyTemplate(template: string, entity: IEntityDocument): string {
+  return template
+    .replace(/{{companyName}}/g, entity.companyName)
+    .replace(/{{tickerSymbol}}/g, entity.tickerSymbol)
+    .replace(/{{leadPlaintiffDate}}/g, format(entity.leadPlaintiffDate, 'MMMM d, yyyy'))
+    .replace(/{{caseDate}}/g, format(entity.caseDate, 'MMMM d, yyyy'));
+}
+
+function generateDefaultMessage(entity: IEntityDocument): string {
+  return `🚨 ${entity.companyName} (${entity.tickerSymbol}) Securities Class Action\n\n` +
+    `Lead Plaintiff Deadline: ${format(entity.leadPlaintiffDate, 'MMMM d, yyyy')}\n\n` +
+    `Contact us to learn about your legal options.`;
+}
+```

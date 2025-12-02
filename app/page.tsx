@@ -1,65 +1,141 @@
-import Image from "next/image";
+// Dashboard (Home) page
 
-export default function Home() {
+export default function Dashboard() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <div className="space-y-8">
+      {/* Page title */}
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight text-whatsapp-dark-teal">Dashboard</h1>
+        <p className="text-sm text-gray-600">
+          Overview of cases and scheduled posts
+        </p>
+      </header>
+
+      {/* Top stats cards */}
+      <section className="grid gap-6 md:grid-cols-3">
+        <StatCard label="Urgent" value="3" subtitle="cases" tone="red" />
+        <StatCard label="Today" value="12" subtitle="posts" tone="whatsapp" />
+        <StatCard label="Sent" value="156" subtitle="this week" tone="teal" />
+      </section>
+
+      {/* Bottom sections: Deadlines & Next posts */}
+      <section className="grid gap-6 lg:grid-cols-2">
+        {/* Upcoming deadlines */}
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+          <h2 className="text-sm font-semibold tracking-wide text-whatsapp-dark-teal mb-4">
+            UPCOMING DEADLINES
+          </h2>
+          <div className="space-y-3">
+            <DeadlineItem
+              color="red"
+              company="Acme Corp"
+              code="ACME"
+              daysLeft={5}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <DeadlineItem
+              color="amber"
+              company="Tech Inc"
+              code="TECH"
+              daysLeft={12}
+            />
+            <DeadlineItem
+              color="whatsapp"
+              company="Bank Co"
+              code="BANK"
+              daysLeft={45}
+            />
+          </div>
         </div>
-      </main>
+
+        {/* Next posts today */}
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+          <h2 className="text-sm font-semibold tracking-wide text-whatsapp-dark-teal mb-4">
+            NEXT POSTS TODAY
+          </h2>
+          <div className="space-y-3">
+            <PostRow time="9:00 AM" company="Acme Corp" type="Image" />
+            <PostRow time="11:00 AM" company="Acme Corp" type="Video" />
+            <PostRow time="2:00 PM" company="Tech Inc" type="Article" />
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// Small reusable components:
+
+function StatCard({ label, value, subtitle, tone = "whatsapp" }: {
+  label: string;
+  value: string;
+  subtitle: string;
+  tone?: "red" | "amber" | "whatsapp" | "teal";
+}) {
+  const toneMap = {
+    red: "bg-red-100 text-red-600",
+    amber: "bg-amber-100 text-amber-600",
+    whatsapp: "bg-whatsapp-light-green text-whatsapp-dark-teal",
+    teal: "bg-whatsapp-teal/10 text-whatsapp-teal",
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow">
+      <span className="text-xs font-semibold tracking-wide text-gray-600 uppercase">
+        {label}
+      </span>
+      <div className="flex items-baseline gap-2">
+        <span className="text-3xl font-semibold text-whatsapp-dark-teal">{value}</span>
+        <span className="text-sm text-gray-600">{subtitle}</span>
+      </div>
+      <div className={`inline-flex w-fit px-3 py-1 rounded-full text-xs font-medium ${toneMap[tone]}`}>
+        {label} summary
+      </div>
+    </div>
+  );
+}
+
+function DeadlineItem({ color = "red", company, code, daysLeft }: {
+  color?: "red" | "amber" | "whatsapp";
+  company: string;
+  code: string;
+  daysLeft: number;
+}) {
+  const dotColor =
+    color === "red"
+      ? "bg-red-500"
+      : color === "amber"
+      ? "bg-amber-500"
+      : "bg-whatsapp-green";
+
+  return (
+    <div className="flex items-center justify-between text-sm hover:bg-whatsapp-beige/50 p-2 rounded-lg transition-colors">
+      <div className="flex items-center gap-3">
+        <span className={`h-2.5 w-2.5 rounded-full ${dotColor}`} />
+        <div>
+          <div className="font-medium text-gray-900">
+            {company} <span className="text-gray-500">({code})</span>
+          </div>
+        </div>
+      </div>
+      <div className="text-gray-600 font-medium">{daysLeft} days left</div>
+    </div>
+  );
+}
+
+function PostRow({ time, company, type }: {
+  time: string;
+  company: string;
+  type: string;
+}) {
+  return (
+    <div className="flex items-center justify-between text-sm hover:bg-whatsapp-beige/50 p-2 rounded-lg transition-colors">
+      <div className="text-whatsapp-dark-teal font-semibold">{time}</div>
+      <div className="flex items-center gap-2 text-gray-700">
+        <span>{company}</span>
+        <span className="text-xs px-3 py-1 rounded-full bg-whatsapp-light-green text-whatsapp-dark-teal font-medium">
+          {type}
+        </span>
+      </div>
     </div>
   );
 }
