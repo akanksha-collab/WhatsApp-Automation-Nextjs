@@ -595,24 +595,25 @@ function applyTemplate(template: string, entity: IEntityDocument): string {
 
   return template
     // Basic Info
-    .replace(/\[Company Name\]/gi, entity.companyName || '')
-    .replace(/\[Ticker\]/gi, entity.tickerSymbol || '')
+    .replace(/\[Company Name\]/gi, entity.companyName || '[Company Name - Not Set]')
+    .replace(/\[Ticker\]/gi, entity.tickerSymbol || '[Ticker - Not Set]')
     // Dates
-    .replace(/\[Lead Plaintiff Deadline\]/gi, formatDateSafe(entity.leadPlaintiffDate))
-    .replace(/\[Days Remaining\]/gi, daysRemaining)
- 
-    .replace(/\[Class Action Period - Start Date\]/gi, formatDateSafe(entity.classPeriodStart))
-    .replace(/\[Class Action Period - End Date\]/gi, formatDateSafe(entity.classPeriodEnd))
-    .replace(/\[Case Date\]/gi, formatDateSafe(entity.caseDate))
+    .replace(/\[Lead Plaintiff Deadline\]/gi, entity.leadPlaintiffDate ? formatDateSafe(entity.leadPlaintiffDate) : '[Lead Plaintiff Deadline - Not Set]')
+    .replace(/\[Days Remaining\]/gi, daysRemaining || '[Days - Not Set]')
+    .replace(/\[Class Period End\]/gi, entity.classPeriodEnd ? formatDateSafe(entity.classPeriodEnd) : '[Class Period End - Not Set]')
+    .replace(/\[Class Period Start\]/gi, entity.classPeriodStart ? formatDateSafe(entity.classPeriodStart) : '[Class Period Start - Not Set]')
+    .replace(/\[Class Action Period - Start Date\]/gi, entity.classPeriodStart ? formatDateSafe(entity.classPeriodStart) : '[Class Period Start - Not Set]')
+    .replace(/\[Class Action Period - End Date\]/gi, entity.classPeriodEnd ? formatDateSafe(entity.classPeriodEnd) : '[Class Period End - Not Set]')
+    .replace(/\[Case Date\]/gi, entity.caseDate ? formatDateSafe(entity.caseDate) : '[Case Date - Not Set]')
     // Case Details
-    .replace(/\[Allegations\]/gi, entity.allegations || '')
+    .replace(/\[Allegations\]/gi, entity.allegations || '[Allegations - Not Set]')
     // Links
-    .replace(/\[Join Link\]/gi, entity.joinLink || '')
-    .replace(/\[Blog Link\]/gi, entity.blogLink || '')
-    .replace(/\[YouTube Link\]/gi, entity.youtubeLink || '')
-    .replace(/\[Podcast Link\]/gi, entity.podcastLink || '')
-    .replace(/\[Avatar Video\]/gi, entity.avatarVideo || '')
-    .replace(/\[AI Video\]/gi, entity.aiVideo || '');
+    .replace(/\[Join Link\]/gi, entity.joinLink || '[Join Link - Not Set]')
+    .replace(/\[Blog Link\]/gi, entity.blogLink || '[Blog Link - Not Set]')
+    .replace(/\[YouTube Link\]/gi, entity.youtubeLink || '[YouTube Link - Not Set]')
+    .replace(/\[Podcast Link\]/gi, entity.podcastLink || '[Podcast Link - Not Set]')
+    .replace(/\[Avatar Video\]/gi, entity.avatarVideo || '[Avatar Video - Not Set]')
+    .replace(/\[AI Video\]/gi, entity.aiVideo || '[AI Video - Not Set]');
 }
 
 function generateDefaultMessage(entity: IEntityDocument): string {

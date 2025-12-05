@@ -11,11 +11,13 @@ import {
   AlertCircle,
   Play,
   Sparkles,
-  Bot
+  Bot,
+  Eye
 } from 'lucide-react';
 import UploadImageModal from './UploadImageModal';
 import UploadVideoModal from './UploadVideoModal';
 import GenerateAIImageModal from './GenerateAIImageModal';
+import ContentViewModal from '@/components/ui/ContentViewModal';
 
 interface ContentItem {
   _id: string;
@@ -54,6 +56,10 @@ export default function ContentTab({ entityId, entity }: ContentTabProps) {
   
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // View modal state
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
 
   useEffect(() => {
     fetchContent();
@@ -105,6 +111,18 @@ export default function ContentTab({ entityId, entity }: ContentTabProps) {
   const handleUploadSuccess = () => {
     fetchContent();
   };
+
+  const handleViewContent = (content: ContentItem) => {
+    setSelectedContent(content);
+    setViewModalOpen(true);
+  };
+
+  const handleNavigateContent = (content: ContentItem) => {
+    setSelectedContent(content);
+  };
+
+  // Combine images and videos for navigation in the modal
+  const allContent = [...images, ...videos];
 
   if (isLoading) {
     return (
@@ -221,11 +239,14 @@ export default function ContentTab({ entityId, entity }: ContentTabProps) {
                 key={image._id} 
                 className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group"
               >
-                <div className="aspect-square relative overflow-hidden bg-gray-100">
+                <div 
+                  className="aspect-square relative overflow-hidden bg-gray-100 cursor-pointer"
+                  onClick={() => handleViewContent(image)}
+                >
                   <img
                     src={image.thumbnailUrl}
                     alt={image.fileName}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                   />
                   {/* AI Badge */}
                   {image.isAiGenerated && (
@@ -234,6 +255,12 @@ export default function ContentTab({ entityId, entity }: ContentTabProps) {
                       AI Generated
                     </div>
                   )}
+                  {/* Hover Overlay */}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                    <div className="p-3 bg-white/90 rounded-full">
+                      <Eye size={24} className="text-whatsapp-dark-teal" />
+                    </div>
+                  </div>
                 </div>
                 <div className="p-3">
                   <p className="text-sm font-medium text-gray-900 truncate" title={image.fileName}>
@@ -243,13 +270,22 @@ export default function ContentTab({ entityId, entity }: ContentTabProps) {
                     <span className="text-xs text-gray-500">
                       Used: {image.usageCount}x
                     </span>
-                    <button
-                      onClick={() => setDeleteConfirmId(image._id)}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleViewContent(image)}
+                        className="p-1.5 text-gray-400 hover:text-whatsapp-green hover:bg-whatsapp-light-green rounded transition-colors"
+                        title="View"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirmId(image._id)}
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -270,13 +306,23 @@ export default function ContentTab({ entityId, entity }: ContentTabProps) {
                 key={video._id} 
                 className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group"
               >
-                <div className="aspect-video relative overflow-hidden bg-gray-900 flex items-center justify-center">
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                    <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
-                      <Play size={24} className="text-whatsapp-dark-teal ml-1" />
+                <div 
+                  className="aspect-video relative overflow-hidden bg-gray-900 flex items-center justify-center cursor-pointer"
+                  onClick={() => handleViewContent(video)}
+                >
+                  {/* Video Thumbnail - try to show video poster or fallback */}
+                  <video
+                    src={video.fileUrl}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    preload="metadata"
+                    muted
+                  />
+                  {/* Play Button Overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/50 transition-colors">
+                    <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center transform group-hover:scale-110 transition-transform">
+                      <Play size={28} className="text-whatsapp-dark-teal ml-1" />
                     </div>
                   </div>
-                  <Video size={32} className="text-gray-500" />
                 </div>
                 <div className="p-3">
                   <p className="text-sm font-medium text-gray-900 truncate" title={video.fileName}>
@@ -286,13 +332,22 @@ export default function ContentTab({ entityId, entity }: ContentTabProps) {
                     <span className="text-xs text-gray-500">
                       Used: {video.usageCount}x
                     </span>
-                    <button
-                      onClick={() => setDeleteConfirmId(video._id)}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleViewContent(video)}
+                        className="p-1.5 text-gray-400 hover:text-whatsapp-green hover:bg-whatsapp-light-green rounded transition-colors"
+                        title="View"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirmId(video._id)}
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -366,6 +421,18 @@ export default function ContentTab({ entityId, entity }: ContentTabProps) {
         entityId={entityId}
         entity={entity}
         onSuccess={handleUploadSuccess}
+      />
+
+      {/* Content View Modal */}
+      <ContentViewModal
+        isOpen={viewModalOpen}
+        onClose={() => {
+          setViewModalOpen(false);
+          setSelectedContent(null);
+        }}
+        content={selectedContent}
+        allContent={allContent}
+        onNavigate={handleNavigateContent}
       />
     </div>
   );

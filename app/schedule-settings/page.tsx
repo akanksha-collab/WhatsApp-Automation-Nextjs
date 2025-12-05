@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Save, AlertCircle, Clock, Settings, Zap, Plus, Trash2, Edit2, Check, X, Lock, Unlock, Sparkles, Loader2 } from 'lucide-react';
+import { Save, AlertCircle, Clock, Settings, Zap, Plus, Trash2, Edit2, Check, X, Sparkles, Loader2 } from 'lucide-react';
 
 interface TimeSlot {
   id: string;
@@ -37,14 +37,24 @@ interface ScheduleSettings {
   timezone: string;
 }
 
+// Section edit modes
+type SectionKey = 'whatsapp' | 'priority' | 'imageGen' | 'weeklySchedule';
+
 export default function ScheduleSettingsPage() {
   const [settings, setSettings] = useState<ScheduleSettings | null>(null);
   const [originalSettings, setOriginalSettings] = useState<ScheduleSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving, setIsSaving] = useState<SectionKey | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [isEditMode, setIsEditMode] = useState(false);
+  
+  // Separate edit modes for each section
+  const [editModes, setEditModes] = useState<Record<SectionKey, boolean>>({
+    whatsapp: false,
+    priority: false,
+    imageGen: false,
+    weeklySchedule: false,
+  });
   
   // Edit time slot state
   const [editingSlot, setEditingSlot] = useState<{ day: string; slotId: string } | null>(null);
@@ -61,6 +71,46 @@ export default function ScheduleSettingsPage() {
   const [isSavingGuidelines, setIsSavingGuidelines] = useState(false);
   const [guidelinesSuccess, setGuidelinesSuccess] = useState('');
   const [guidelinesError, setGuidelinesError] = useState('');
+  
+  // Helper functions for section edit modes
+  const toggleEditMode = (section: SectionKey) => {
+    setEditModes(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+  
+  const cancelSectionEdit = (section: SectionKey) => {
+    if (originalSettings && settings) {
+      // Restore original values for specific section
+      switch (section) {
+        case 'whatsapp':
+          setSettings({
+            ...settings,
+            whatsappChannelId: originalSettings.whatsappChannelId,
+            maytapiProductId: originalSettings.maytapiProductId,
+            maytapiPhoneId: originalSettings.maytapiPhoneId,
+            timezone: originalSettings.timezone,
+          });
+          break;
+        case 'priority':
+          setSettings({
+            ...settings,
+            priorityThresholds: { ...originalSettings.priorityThresholds },
+          });
+          break;
+        case 'weeklySchedule':
+          setSettings({
+            ...settings,
+            weeklySchedule: originalSettings.weeklySchedule.map(d => ({
+              ...d,
+              timeSlots: d.timeSlots.map(s => ({ ...s })),
+            })),
+          });
+          setEditingSlot(null);
+          setAddingToDay(null);
+          break;
+      }
+    }
+    setEditModes(prev => ({ ...prev, [section]: false }));
+  };
 
   useEffect(() => {
     fetchSettings();
@@ -139,12 +189,12 @@ export default function ScheduleSettingsPage() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSaveSection = async (section: SectionKey) => {
     if (!settings) return;
     
     setError('');
     setSuccess('');
-    setIsSaving(true);
+    setIsSaving(section);
 
     try {
       const res = await fetch('/api/schedule/settings', {
@@ -160,28 +210,19 @@ export default function ScheduleSettingsPage() {
         return;
       }
 
-      setOriginalSettings(settings);
-      setIsEditMode(false);
+      setOriginalSettings(JSON.parse(JSON.stringify(settings)));
+      setEditModes(prev => ({ ...prev, [section]: false }));
       setSuccess('Settings saved successfully!');
       setTimeout(() => setSuccess(''), 3000);
     } catch {
       setError('Something went wrong');
     } finally {
-      setIsSaving(false);
+      setIsSaving(null);
     }
-  };
-
-  const handleCancel = () => {
-    if (originalSettings) {
-      setSettings(originalSettings);
-    }
-    setIsEditMode(false);
-    setEditingSlot(null);
-    setAddingToDay(null);
   };
 
   const toggleDayActive = (day: string) => {
-    if (!settings || !isEditMode) return;
+    if (!settings || !editModes.weeklySchedule) return;
     setSettings({
       ...settings,
       weeklySchedule: settings.weeklySchedule.map(d =>
@@ -191,7 +232,7 @@ export default function ScheduleSettingsPage() {
   };
 
   const toggleTimeSlot = (day: string, slotId: string) => {
-    if (!settings || !isEditMode) return;
+    if (!settings || !editModes.weeklySchedule) return;
     setSettings({
       ...settings,
       weeklySchedule: settings.weeklySchedule.map(d =>
@@ -208,7 +249,7 @@ export default function ScheduleSettingsPage() {
   };
 
   const startEditingSlot = (day: string, slot: TimeSlot) => {
-    if (!isEditMode) return;
+    if (!editModes.weeklySchedule) return;
     setEditingSlot({ day, slotId: slot.id });
     setEditingTime(slot.time);
   };
@@ -264,7 +305,7 @@ export default function ScheduleSettingsPage() {
   };
 
   const deleteTimeSlot = (day: string, slotId: string) => {
-    if (!settings || !isEditMode) return;
+    if (!settings || !editModes.weeklySchedule) return;
     
     setSettings({
       ...settings,
@@ -291,8 +332,8 @@ export default function ScheduleSettingsPage() {
     return <div className="text-center py-12 text-gray-500">Failed to load settings</div>;
   }
 
-  const inputClassName = `w-full px-4 py-2 border border-gray-200 rounded-lg transition-all ${
-    isEditMode 
+  const getInputClassName = (isEditing: boolean) => `w-full px-4 py-2 border border-gray-200 rounded-lg transition-all ${
+    isEditing 
       ? 'focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white' 
       : 'bg-gray-50 text-gray-600 cursor-not-allowed'
   }`;
@@ -309,54 +350,7 @@ export default function ScheduleSettingsPage() {
             Configure your posting schedule and WhatsApp integration
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          {!isEditMode ? (
-            <button
-              onClick={() => setIsEditMode(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition-colors shadow-sm"
-            >
-              <Unlock size={18} />
-              Edit Settings
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={handleCancel}
-                disabled={!originalSettings}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
-              >
-                <X size={18} />
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-whatsapp-green text-white rounded-lg font-medium hover:bg-whatsapp-teal transition-colors shadow-sm disabled:opacity-50"
-              >
-                <Save size={18} />
-                {isSaving ? 'Saving...' : 'Save Settings'}
-              </button>
-            </>
-          )}
-        </div>
       </header>
-
-      {/* Edit Mode Banner */}
-      {isEditMode && (
-        <div className="flex items-center gap-2 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-700">
-          <Unlock size={18} />
-          <span className="font-medium">Edit Mode</span>
-          <span className="text-amber-600">— You can now modify settings. Click &quot;Save Settings&quot; when done.</span>
-        </div>
-      )}
-
-      {!isEditMode && originalSettings && (
-        <div className="flex items-center gap-2 p-4 bg-gray-50 border border-gray-200 rounded-lg text-gray-600">
-          <Lock size={18} />
-          <span className="font-medium">View Mode</span>
-          <span>— Click &quot;Edit Settings&quot; to make changes.</span>
-        </div>
-      )}
 
       {error && (
         <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-lg text-red-600">
@@ -375,11 +369,42 @@ export default function ScheduleSettingsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* WhatsApp Configuration */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-6">
-            <Settings size={20} className="text-whatsapp-dark-teal" />
-            <h2 className="text-sm font-semibold tracking-wide text-whatsapp-dark-teal uppercase">
-              WhatsApp Configuration
-            </h2>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Settings size={20} className="text-whatsapp-dark-teal" />
+              <h2 className="text-sm font-semibold tracking-wide text-whatsapp-dark-teal uppercase">
+                WhatsApp Configuration
+              </h2>
+            </div>
+            <div className="flex items-center gap-2">
+              {!editModes.whatsapp ? (
+                <button
+                  onClick={() => toggleEditMode('whatsapp')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition-colors"
+                >
+                  <Edit2 size={14} />
+                  Edit
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => cancelSectionEdit('whatsapp')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    <X size={14} />
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleSaveSection('whatsapp')}
+                    disabled={isSaving === 'whatsapp'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-whatsapp-green text-white rounded-lg font-medium hover:bg-whatsapp-teal transition-colors disabled:opacity-50"
+                  >
+                    <Save size={14} />
+                    {isSaving === 'whatsapp' ? 'Saving...' : 'Save'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -391,8 +416,8 @@ export default function ScheduleSettingsPage() {
                 type="text"
                 value={settings.whatsappChannelId}
                 onChange={(e) => setSettings({ ...settings, whatsappChannelId: e.target.value })}
-                disabled={!isEditMode}
-                className={inputClassName}
+                disabled={!editModes.whatsapp}
+                className={getInputClassName(editModes.whatsapp)}
                 placeholder="e.g., 120363419056389937@newsletter"
               />
               <p className="text-xs text-gray-500 mt-1">For channels, use format: ID@newsletter</p>
@@ -406,8 +431,8 @@ export default function ScheduleSettingsPage() {
                 type="text"
                 value={settings.maytapiProductId}
                 onChange={(e) => setSettings({ ...settings, maytapiProductId: e.target.value })}
-                disabled={!isEditMode}
-                className={inputClassName}
+                disabled={!editModes.whatsapp}
+                className={getInputClassName(editModes.whatsapp)}
                 placeholder="Your Maytapi product ID"
               />
             </div>
@@ -420,8 +445,8 @@ export default function ScheduleSettingsPage() {
                 type="text"
                 value={settings.maytapiPhoneId}
                 onChange={(e) => setSettings({ ...settings, maytapiPhoneId: e.target.value })}
-                disabled={!isEditMode}
-                className={inputClassName}
+                disabled={!editModes.whatsapp}
+                className={getInputClassName(editModes.whatsapp)}
                 placeholder="Your Maytapi phone ID"
               />
             </div>
@@ -433,8 +458,8 @@ export default function ScheduleSettingsPage() {
               <select
                 value={settings.timezone}
                 onChange={(e) => setSettings({ ...settings, timezone: e.target.value })}
-                disabled={!isEditMode}
-                className={`${inputClassName} ${isEditMode ? 'bg-white' : 'bg-gray-50'}`}
+                disabled={!editModes.whatsapp}
+                className={`${getInputClassName(editModes.whatsapp)} ${editModes.whatsapp ? 'bg-white' : 'bg-gray-50'}`}
               >
                 <option value="America/New_York">Eastern Time (ET)</option>
                 <option value="America/Chicago">Central Time (CT)</option>
@@ -448,11 +473,42 @@ export default function ScheduleSettingsPage() {
 
         {/* Priority Settings */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-6">
-            <Zap size={20} className="text-whatsapp-dark-teal" />
-            <h2 className="text-sm font-semibold tracking-wide text-whatsapp-dark-teal uppercase">
-              Priority Thresholds (Days)
-            </h2>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Zap size={20} className="text-whatsapp-dark-teal" />
+              <h2 className="text-sm font-semibold tracking-wide text-whatsapp-dark-teal uppercase">
+                Priority Thresholds (Days)
+              </h2>
+            </div>
+            <div className="flex items-center gap-2">
+              {!editModes.priority ? (
+                <button
+                  onClick={() => toggleEditMode('priority')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition-colors"
+                >
+                  <Edit2 size={14} />
+                  Edit
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => cancelSectionEdit('priority')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    <X size={14} />
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleSaveSection('priority')}
+                    disabled={isSaving === 'priority'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-whatsapp-green text-white rounded-lg font-medium hover:bg-whatsapp-teal transition-colors disabled:opacity-50"
+                  >
+                    <Save size={14} />
+                    {isSaving === 'priority' ? 'Saving...' : 'Save'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -468,8 +524,8 @@ export default function ScheduleSettingsPage() {
                     ...settings,
                     priorityThresholds: { ...settings.priorityThresholds, highPriority: parseInt(e.target.value) }
                   })}
-                  disabled={!isEditMode}
-                  className={inputClassName}
+                  disabled={!editModes.priority}
+                  className={getInputClassName(editModes.priority)}
                   min="1"
                 />
               </div>
@@ -484,8 +540,8 @@ export default function ScheduleSettingsPage() {
                     ...settings,
                     priorityThresholds: { ...settings.priorityThresholds, mediumPriority: parseInt(e.target.value) }
                   })}
-                  disabled={!isEditMode}
-                  className={inputClassName}
+                  disabled={!editModes.priority}
+                  className={getInputClassName(editModes.priority)}
                   min="1"
                 />
               </div>
@@ -500,8 +556,8 @@ export default function ScheduleSettingsPage() {
                     ...settings,
                     priorityThresholds: { ...settings.priorityThresholds, lowPriority: parseInt(e.target.value) }
                   })}
-                  disabled={!isEditMode}
-                  className={inputClassName}
+                  disabled={!editModes.priority}
+                  className={getInputClassName(editModes.priority)}
                   min="1"
                 />
               </div>
@@ -521,11 +577,55 @@ export default function ScheduleSettingsPage() {
                 Image Generation Settings
               </h2>
             </div>
-            {imageGuidelines !== originalImageGuidelines && (
-              <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full">
-                Unsaved changes
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {imageGuidelines !== originalImageGuidelines && (
+                <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full">
+                  Unsaved changes
+                </span>
+              )}
+              {!editModes.imageGen ? (
+                <button
+                  onClick={() => toggleEditMode('imageGen')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition-colors"
+                >
+                  <Edit2 size={14} />
+                  Edit
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      setImageGuidelines(originalImageGuidelines);
+                      setEditModes(prev => ({ ...prev, imageGen: false }));
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    <X size={14} />
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      saveImageGuidelines();
+                      setEditModes(prev => ({ ...prev, imageGen: false }));
+                    }}
+                    disabled={isSavingGuidelines || imageGuidelines === originalImageGuidelines}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-colors disabled:opacity-50"
+                  >
+                    {isSavingGuidelines ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={14} />
+                        Save
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           {guidelinesError && (
@@ -555,34 +655,19 @@ export default function ScheduleSettingsPage() {
                 <textarea
                   value={imageGuidelines}
                   onChange={(e) => setImageGuidelines(e.target.value)}
+                  disabled={!editModes.imageGen}
                   rows={5}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none transition-all"
+                  className={`w-full px-4 py-3 border border-gray-200 rounded-lg resize-none transition-all ${
+                    editModes.imageGen
+                      ? 'focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white'
+                      : 'bg-gray-50 text-gray-600 cursor-not-allowed'
+                  }`}
                   placeholder="E.g., Use professional colors (blue, gray, white). Include stock market imagery. Maintain a serious, trustworthy tone. Avoid cartoon-style graphics..."
                 />
               )}
               <p className="text-xs text-gray-500 mt-2">
                 These guidelines will be combined with case details when generating AI images in the Content tab.
               </p>
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                onClick={saveImageGuidelines}
-                disabled={isSavingGuidelines || imageGuidelines === originalImageGuidelines}
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSavingGuidelines ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} />
-                    Save Guidelines
-                  </>
-                )}
-              </button>
             </div>
           </div>
         </div>
@@ -595,25 +680,54 @@ export default function ScheduleSettingsPage() {
               <h2 className="text-sm font-semibold tracking-wide text-whatsapp-dark-teal uppercase">
                 Weekly Schedule
               </h2>
+              {editModes.weeklySchedule && (
+                <span className="text-xs text-gray-500 ml-2">
+                  Click time to toggle • Double-click to edit
+                </span>
+              )}
             </div>
-            {isEditMode && (
-              <p className="text-sm text-gray-500">
-                Click time to toggle • Double-click to edit • Add unlimited time slots
-              </p>
-            )}
+            <div className="flex items-center gap-2">
+              {!editModes.weeklySchedule ? (
+                <button
+                  onClick={() => toggleEditMode('weeklySchedule')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition-colors"
+                >
+                  <Edit2 size={14} />
+                  Edit
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => cancelSectionEdit('weeklySchedule')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    <X size={14} />
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleSaveSection('weeklySchedule')}
+                    disabled={isSaving === 'weeklySchedule'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-whatsapp-green text-white rounded-lg font-medium hover:bg-whatsapp-teal transition-colors disabled:opacity-50"
+                  >
+                    <Save size={14} />
+                    {isSaving === 'weeklySchedule' ? 'Saving...' : 'Save'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="space-y-4">
             {settings.weeklySchedule.map((daySettings) => (
-              <div key={daySettings.day} className={`border rounded-lg p-4 ${isEditMode ? 'border-gray-200' : 'border-gray-100 bg-gray-50/50'}`}>
+              <div key={daySettings.day} className={`border rounded-lg p-4 ${editModes.weeklySchedule ? 'border-gray-200' : 'border-gray-100 bg-gray-50/50'}`}>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <input
                       type="checkbox"
                       checked={daySettings.isActive}
                       onChange={() => toggleDayActive(daySettings.day)}
-                      disabled={!isEditMode}
-                      className={`w-4 h-4 text-whatsapp-green border-gray-300 rounded focus:ring-whatsapp-green ${!isEditMode ? 'cursor-not-allowed' : ''}`}
+                      disabled={!editModes.weeklySchedule}
+                      className={`w-4 h-4 text-whatsapp-green border-gray-300 rounded focus:ring-whatsapp-green ${!editModes.weeklySchedule ? 'cursor-not-allowed' : ''}`}
                     />
                     <span className="font-medium text-gray-900 capitalize">{daySettings.day}</span>
                     <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
@@ -621,7 +735,7 @@ export default function ScheduleSettingsPage() {
                     </span>
                   </div>
                   
-                  {daySettings.isActive && isEditMode && (
+                  {daySettings.isActive && editModes.weeklySchedule && (
                     <button
                       onClick={() => setAddingToDay(addingToDay === daySettings.day ? null : daySettings.day)}
                       className="flex items-center gap-1 text-sm text-whatsapp-teal hover:text-whatsapp-dark-teal transition-colors"
@@ -635,7 +749,7 @@ export default function ScheduleSettingsPage() {
                 {daySettings.isActive && (
                   <>
                     {/* Add new slot input */}
-                    {addingToDay === daySettings.day && isEditMode && (
+                    {addingToDay === daySettings.day && editModes.weeklySchedule && (
                       <div className="flex items-center gap-2 mb-3 ml-7">
                         <input
                           type="time"
@@ -663,7 +777,7 @@ export default function ScheduleSettingsPage() {
                     <div className="flex flex-wrap gap-2 ml-7">
                       {daySettings.timeSlots.map((slot) => (
                         <div key={slot.id} className="group relative">
-                          {editingSlot?.day === daySettings.day && editingSlot?.slotId === slot.id && isEditMode ? (
+                          {editingSlot?.day === daySettings.day && editingSlot?.slotId === slot.id && editModes.weeklySchedule ? (
                             <div className="flex items-center gap-1">
                               <input
                                 type="time"
@@ -688,19 +802,19 @@ export default function ScheduleSettingsPage() {
                           ) : (
                             <div className="flex items-center">
                               <button
-                                onClick={() => isEditMode && toggleTimeSlot(daySettings.day, slot.id)}
-                                onDoubleClick={() => isEditMode && startEditingSlot(daySettings.day, slot)}
+                                onClick={() => editModes.weeklySchedule && toggleTimeSlot(daySettings.day, slot.id)}
+                                onDoubleClick={() => editModes.weeklySchedule && startEditingSlot(daySettings.day, slot)}
                                 className={`px-3 py-1.5 text-sm font-medium transition-all ${
-                                  isEditMode ? 'rounded-l-lg' : 'rounded-lg'
+                                  editModes.weeklySchedule ? 'rounded-l-lg' : 'rounded-lg'
                                 } ${
                                   slot.isActive
                                     ? 'bg-whatsapp-green text-white'
                                     : 'bg-gray-100 text-gray-600'
-                                } ${!isEditMode ? 'cursor-default' : 'hover:opacity-90'}`}
+                                } ${!editModes.weeklySchedule ? 'cursor-default' : 'hover:opacity-90'}`}
                               >
                                 {slot.time}
                               </button>
-                              {isEditMode && (
+                              {editModes.weeklySchedule && (
                                 <div className="hidden group-hover:flex">
                                   <button
                                     onClick={() => startEditingSlot(daySettings.day, slot)}
@@ -723,7 +837,7 @@ export default function ScheduleSettingsPage() {
                       
                       {daySettings.timeSlots.length === 0 && (
                         <span className="text-sm text-gray-400 italic">
-                          {isEditMode ? 'No time slots - click "Add Time Slot" to create one' : 'No time slots configured'}
+                          {editModes.weeklySchedule ? 'No time slots - click "Add Time Slot" to create one' : 'No time slots configured'}
                         </span>
                       )}
                     </div>

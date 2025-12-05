@@ -2,6 +2,10 @@
 
 import { X, Image, Video, FileText, Link as LinkIcon, Calendar, Clock, Building2, Tag, User } from 'lucide-react';
 import { format } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
+
+// All date/time display should use NY timezone for consistency
+const NY_TIMEZONE = 'America/New_York';
 
 interface ScheduledPost {
   _id: string;
@@ -128,16 +132,16 @@ export default function PostPreviewModal({ post, isOpen, onClose }: PostPreviewM
                 <span className="text-sm font-medium text-gray-500">Scheduled Date</span>
               </div>
               <p className="font-semibold text-gray-900">
-                {format(new Date(post.scheduledAt), 'EEEE, MMMM d, yyyy')}
+                {format(toZonedTime(new Date(post.scheduledAt), NY_TIMEZONE), 'EEEE, MMMM d, yyyy')}
               </p>
             </div>
             <div className="bg-gray-50 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Clock size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-500">Scheduled Time</span>
+                <span className="text-sm font-medium text-gray-500">Scheduled Time <span className="text-xs text-blue-500">(NY)</span></span>
               </div>
               <p className="font-semibold text-gray-900">
-                {format(new Date(post.scheduledAt), 'h:mm a')}
+                {format(toZonedTime(new Date(post.scheduledAt), NY_TIMEZONE), 'h:mm a')}
               </p>
             </div>
           </div>
@@ -221,7 +225,7 @@ export default function PostPreviewModal({ post, isOpen, onClose }: PostPreviewM
               <div className="flex items-center gap-2">
                 <Clock size={16} className="text-blue-500" />
                 <span className="text-sm font-medium text-blue-700">
-                  Sent on {format(new Date(post.sentAt), 'MMMM d, yyyy')} at {format(new Date(post.sentAt), 'h:mm a')}
+                  Sent on {format(toZonedTime(new Date(post.sentAt), NY_TIMEZONE), 'MMMM d, yyyy')} at {format(toZonedTime(new Date(post.sentAt), NY_TIMEZONE), 'h:mm a')} <span className="text-xs text-blue-500">(NY)</span>
                 </span>
               </div>
             </div>

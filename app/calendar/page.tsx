@@ -32,7 +32,7 @@ interface ScheduledPost {
   };
 }
 
-const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7 AM to 8 PM
+const HOURS = Array.from({ length: 18 }, (_, i) => i + 5); // 5 AM to 10 PM
 
 export default function CalendarPage() {
   const [currentWeek, setCurrentWeek] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -169,10 +169,17 @@ export default function CalendarPage() {
     return posts.filter(post => {
       // Convert the UTC scheduled time to NY timezone for proper comparison
       const postDateInNY = toZonedTime(new Date(post.scheduledAt), NY_TIMEZONE);
-      // The day passed to this function is already in the context of the calendar view
-      // We need to compare in NY timezone
-      const dayInNY = toZonedTime(day, NY_TIMEZONE);
-      return isSameDay(postDateInNY, dayInNY) && postDateInNY.getHours() === hour;
+      
+      // Compare date components directly:
+      // - postDateInNY has adjusted values showing NY time (getDate/getMonth/etc return NY values)
+      // - day is the calendar day we're rendering (already represents the correct date)
+      // DO NOT convert 'day' with toZonedTime - it's already the calendar date we want
+      const isSameDate = 
+        postDateInNY.getFullYear() === day.getFullYear() &&
+        postDateInNY.getMonth() === day.getMonth() &&
+        postDateInNY.getDate() === day.getDate();
+      
+      return isSameDate && postDateInNY.getHours() === hour;
     });
   };
 
