@@ -600,8 +600,9 @@ function applyTemplate(template: string, entity: IEntityDocument): string {
     // Dates
     .replace(/\[Lead Plaintiff Deadline\]/gi, formatDateSafe(entity.leadPlaintiffDate))
     .replace(/\[Days Remaining\]/gi, daysRemaining)
-    .replace(/\[Class Period Start\]/gi, formatDateSafe(entity.classPeriodStart))
-    .replace(/\[Class Period End\]/gi, formatDateSafe(entity.classPeriodEnd))
+ 
+    .replace(/\[Class Action Period - Start Date\]/gi, formatDateSafe(entity.classPeriodStart))
+    .replace(/\[Class Action Period - End Date\]/gi, formatDateSafe(entity.classPeriodEnd))
     .replace(/\[Case Date\]/gi, formatDateSafe(entity.caseDate))
     // Case Details
     .replace(/\[Allegations\]/gi, entity.allegations || '')

@@ -26,12 +26,6 @@ interface ScheduleSettings {
     mediumPriority: number;
     lowPriority: number;
   };
-  frequencyMultipliers: {
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-  };
   contentRotation: {
     imageWeight: number;
     videoWeight: number;
@@ -513,28 +507,6 @@ export default function ScheduleSettingsPage() {
               </div>
             </div>
 
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Frequency Multipliers</h3>
-              <div className="grid grid-cols-4 gap-3">
-                {Object.entries(settings.frequencyMultipliers).map(([key, value]) => (
-                  <div key={key}>
-                    <label className="block text-xs text-gray-500 mb-1 capitalize">{key}</label>
-                    <input
-                      type="number"
-                      value={value}
-                      onChange={(e) => setSettings({
-                        ...settings,
-                        frequencyMultipliers: { ...settings.frequencyMultipliers, [key]: parseFloat(e.target.value) }
-                      })}
-                      disabled={!isEditMode}
-                      className={`${inputClassName} text-sm`}
-                      min="0.5"
-                      step="0.5"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
 

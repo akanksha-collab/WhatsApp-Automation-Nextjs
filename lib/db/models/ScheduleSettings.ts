@@ -31,14 +31,6 @@ export interface IScheduleSettings {
     lowPriority: number;
   };
   
-  // Frequency multipliers based on priority
-  frequencyMultipliers: {
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-  };
-  
   // Content rotation settings
   contentRotation: {
     imageWeight: number;
@@ -86,13 +78,6 @@ const ScheduleSettingsSchema = new Schema<IScheduleSettingsDocument>(
       highPriority: { type: Number, default: 7 },
       mediumPriority: { type: Number, default: 14 },
       lowPriority: { type: Number, default: 30 },
-    },
-    
-    frequencyMultipliers: {
-      critical: { type: Number, default: 3 },
-      high: { type: Number, default: 2 },
-      medium: { type: Number, default: 1.5 },
-      low: { type: Number, default: 1 },
     },
     
     contentRotation: {

@@ -26,7 +26,6 @@ export interface EntityPriority {
   entity: IEntityDocument;
   priorityLevel: PriorityLevel;
   daysUntilDeadline: number;
-  frequencyMultiplier: number;
   score: number;
 }
 
@@ -71,35 +70,16 @@ export function calculatePriority(
   // Use fixed priority thresholds
   const priorityLevel = getPriorityLevel(daysUntil);
   
-  // Get frequency multiplier from settings (still used for scoring, not slot allocation)
-  let frequencyMultiplier: number;
-  switch (priorityLevel) {
-    case 'critical':
-      frequencyMultiplier = settings.frequencyMultipliers.critical;
-      break;
-    case 'high':
-      frequencyMultiplier = settings.frequencyMultipliers.high;
-      break;
-    case 'medium':
-      frequencyMultiplier = settings.frequencyMultipliers.medium;
-      break;
-    case 'low':
-    default:
-      frequencyMultiplier = settings.frequencyMultipliers.low;
-      break;
-  }
-  
   // Calculate score (higher = more urgent)
   // Score considers: days until deadline, total post count (fewer posts = higher priority)
   const urgencyScore = daysUntil > 0 ? (100 / daysUntil) : (daysUntil === 0 ? 100 : 0);
   const postCountPenalty = entity.totalPostCount * 0.1;
-  const score = (urgencyScore * frequencyMultiplier) - postCountPenalty;
+  const score = urgencyScore - postCountPenalty;
   
   return {
     entity,
     priorityLevel,
     daysUntilDeadline: daysUntil,
-    frequencyMultiplier,
     score: Math.max(0, score),
   };
 }
@@ -121,34 +101,16 @@ export function calculatePriorityForDate(
   // Use fixed priority thresholds
   const priorityLevel = getPriorityLevel(daysUntil);
   
-  // Get frequency multiplier from settings
-  let frequencyMultiplier: number;
-  switch (priorityLevel) {
-    case 'critical':
-      frequencyMultiplier = settings.frequencyMultipliers.critical;
-      break;
-    case 'high':
-      frequencyMultiplier = settings.frequencyMultipliers.high;
-      break;
-    case 'medium':
-      frequencyMultiplier = settings.frequencyMultipliers.medium;
-      break;
-    case 'low':
-    default:
-      frequencyMultiplier = settings.frequencyMultipliers.low;
-      break;
-  }
-  
-  // Calculate score
+  // Calculate score (higher = more urgent)
+  // Score considers: days until deadline, total post count (fewer posts = higher priority)
   const urgencyScore = daysUntil > 0 ? (100 / daysUntil) : (daysUntil === 0 ? 100 : 0);
   const postCountPenalty = entity.totalPostCount * 0.1;
-  const score = (urgencyScore * frequencyMultiplier) - postCountPenalty;
+  const score = urgencyScore - postCountPenalty;
   
   return {
     entity,
     priorityLevel,
     daysUntilDeadline: daysUntil,
-    frequencyMultiplier,
     score: Math.max(0, score),
   };
 }

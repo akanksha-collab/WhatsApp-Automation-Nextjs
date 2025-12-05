@@ -34,7 +34,6 @@ export async function GET() {
       defaults: {
         weeklySchedule: DEFAULT_WEEKLY_SCHEDULE,
         priorityThresholds: { highPriority: 7, mediumPriority: 14, lowPriority: 30 },
-        frequencyMultipliers: { critical: 3, high: 2, medium: 1.5, low: 1 },
         contentRotation: { imageWeight: 40, videoWeight: 30, textWeight: 20, linkWeight: 10 },
         timezone: 'America/New_York',
       }
@@ -59,7 +58,6 @@ export async function PUT(req: Request) {
     maytapiPhoneId,
     weeklySchedule,
     priorityThresholds,
-    frequencyMultipliers,
     contentRotation,
     autoScheduleEnabled,
     autoScheduleDaysBefore,
@@ -83,7 +81,6 @@ export async function PUT(req: Request) {
         maytapiPhoneId,
         weeklySchedule: weeklySchedule || DEFAULT_WEEKLY_SCHEDULE,
         priorityThresholds: priorityThresholds || { highPriority: 7, mediumPriority: 14, lowPriority: 30 },
-        frequencyMultipliers: frequencyMultipliers || { critical: 3, high: 2, medium: 1.5, low: 1 },
         contentRotation: contentRotation || { imageWeight: 40, videoWeight: 30, textWeight: 20, linkWeight: 10 },
         autoScheduleEnabled: autoScheduleEnabled ?? true,
         autoScheduleDaysBefore: autoScheduleDaysBefore || 7,

@@ -106,7 +106,11 @@ export default function GenerateAIImageModal({
     }
     
     // Default instructions
-    parts.push('The image should be suitable for WhatsApp-style legal updates. It should look clean, trustworthy, professional, and convey urgency for investor action.');
+    parts.push('Design the image as a wide 16:9 hero banner for a law-firm style case update. ' +
+    'Keep the left one-third of the image darker, simpler and less busy to allow for text overlay, ' +
+    'and use the right side for a strong illustrative scene related to corporate, financial, technology or healthcare themes. ' +
+    'The style should be realistic, clean, modern and trustworthy, with professional colors (dark blue, charcoal, gray, muted red/orange accents). ' +
+    'Avoid detailed text in the image itself, avoid logos and identifiable faces, and make sure the image looks appropriate for WhatsApp and social media legal updates.');
     
     setPrompt(parts.join('\n\n'));
   };

@@ -49,6 +49,8 @@ const PLACEHOLDER_GROUPS = [
       { tag: '[Days Remaining]', description: 'Days left until deadline (number only, e.g., "5", "0")' },
       { tag: '[Class Period Start]', description: 'Class period start' },
       { tag: '[Class Period End]', description: 'Class period end' },
+      { tag: '[Class Action Period - Start Date]', description: 'Class period start (alternate)' },
+      { tag: '[Class Action Period - End Date]', description: 'Class period end (alternate)' },
       { tag: '[Case Date]', description: 'Case filing date' },
     ],
   },

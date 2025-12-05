@@ -11,8 +11,9 @@ export interface IMessageTemplate {
   
   // Template with placeholders (use square brackets)
   // Available placeholders:
-  // [Company Name], [Ticker], [Lead Plaintiff Deadline], [Class Period Start],
-  // [Class Period End], [Case Date], [Allegations], [Join Link],
+  // [Company Name], [Ticker], [Lead Plaintiff Deadline], [Days Remaining],
+  // [Class Period Start], [Class Period End], [Class Action Period - Start Date],
+  // [Class Action Period - End Date], [Case Date], [Allegations], [Join Link],
   // [Avatar Video], [AI Video], [Podcast Link], [Blog Link], [YouTube Link]
   template: string;
   
