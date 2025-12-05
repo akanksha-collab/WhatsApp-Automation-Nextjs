@@ -125,7 +125,7 @@ export default function ScheduleSettingsPage() {
       if (data.settings) {
         setSettings(data.settings);
         setOriginalSettings(data.settings);
-        setIsEditMode(false); // Settings exist, start in view mode
+     //   setIsEditMode(false); // Settings exist, start in view mode
       } else if (data.defaults) {
         const defaultSettings = {
           whatsappChannelId: '',
@@ -137,7 +137,7 @@ export default function ScheduleSettingsPage() {
         };
         setSettings(defaultSettings);
         setOriginalSettings(null);
-        setIsEditMode(true); // No settings yet, start in edit mode
+        //setIsEditMode(true); // No settings yet, start in edit mode
       }
     } catch (error) {
       console.error('Failed to fetch settings:', error);

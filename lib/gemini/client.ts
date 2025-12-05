@@ -43,7 +43,7 @@ export async function generateImage(
     const ai = getGeminiClient();
 
     const config = {
-      responseModalities: ['IMAGE', 'TEXT'] as const,
+      responseModalities: ['IMAGE', 'TEXT'] ,
       imageConfig: {
         imageSize: options.imageSize || '1K',
       },
