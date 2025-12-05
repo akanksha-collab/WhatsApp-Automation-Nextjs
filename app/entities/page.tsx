@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, Search, Calendar, AlertCircle, AlertTriangle, Image, Video, Link as LinkIcon, MoreVertical, Edit, Trash2, Clock, Send, X, Zap, Globe } from 'lucide-react';
 import { format, differenceInDays, startOfDay, addMinutes, parse } from 'date-fns';
 import { toZonedTime, fromZonedTime } from 'date-fns-tz';
+import { useToast } from '@/components/ui/Toast';
 
 // All calculations use America/New_York timezone
 const NY_TIMEZONE = 'America/New_York';
@@ -80,6 +81,7 @@ interface Template {
 
 export default function EntitiesPage() {
   const router = useRouter();
+  const toast = useToast();
   const [entities, setEntities] = useState<Entity[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -96,6 +98,7 @@ export default function EntitiesPage() {
   const [scheduleTime, setScheduleTime] = useState('');
   const [isScheduling, setIsScheduling] = useState(false);
   const [currentNYTime, setCurrentNYTime] = useState<string>('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     fetchEntities();
@@ -175,17 +178,20 @@ export default function EntitiesPage() {
     entity.tickerSymbol.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm('Are you sure you want to delete this entity?')) return;
-    
+  const handleDelete = async (id: string) => {
     try {
       const res = await fetch(`/api/entities/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setEntities(entities.filter(e => e._id !== id));
+        setShowDeleteConfirm(null);
+        toast.success('Entity Deleted', 'The entity has been successfully deleted.');
+      } else {
+        const data = await res.json();
+        toast.error('Delete Failed', data.error || 'Failed to delete entity');
       }
     } catch (error) {
       console.error('Failed to delete entity:', error);
+      toast.error('Delete Failed', 'An unexpected error occurred');
     }
   };
 
@@ -295,15 +301,15 @@ export default function EntitiesPage() {
 
       if (res.ok) {
         const nyTimeStr = formatInNY(scheduledAt);
-        alert(`Post scheduled for ${nyTimeStr} (NY Time)`);
+        toast.success('Post Scheduled!', `Scheduled for ${nyTimeStr} (NY Time)`);
         setScheduleModalOpen(false);
       } else {
         const data = await res.json();
-        alert(data.error || 'Failed to schedule post');
+        toast.error('Scheduling Failed', data.error || 'Failed to schedule post');
       }
     } catch (error) {
       console.error('Failed to schedule post:', error);
-      alert('Failed to schedule post');
+      toast.error('Scheduling Failed', 'An unexpected error occurred');
     } finally {
       setIsScheduling(false);
     }
@@ -428,7 +434,10 @@ export default function EntitiesPage() {
                         Edit
                       </Link>
                       <button
-                        onClick={(e) => handleDelete(entity._id, e)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowDeleteConfirm(entity._id);
+                        }}
                         className="flex items-center gap-2 px-4 py-2 hover:bg-red-50 text-sm text-red-600 w-full"
                       >
                         <Trash2 size={16} />
@@ -690,6 +699,45 @@ export default function EntitiesPage() {
                 <Send size={16} />
                 {isScheduling ? 'Scheduling...' : 'Schedule Post'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in"
+          onClick={() => setShowDeleteConfirm(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-xl animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-full mx-auto mb-4">
+                <AlertCircle size={24} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 text-center mb-2">
+                Delete Entity?
+              </h3>
+              <p className="text-gray-600 text-center mb-6">
+                This will permanently delete the entity and all its associated content. This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(null)}
+                  className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDelete(showDeleteConfirm)}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
         </div>

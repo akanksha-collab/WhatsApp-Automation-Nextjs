@@ -6,6 +6,7 @@ export interface IPostHistory {
   scheduledPostId: string;
   
   contentType: string;
+  contentId?: string;        // Reference to ContentItem
   mediaUrl?: string;
   message: string;
   
@@ -27,6 +28,7 @@ const PostHistorySchema = new Schema<IPostHistoryDocument>(
     scheduledPostId: { type: String, required: true },
     
     contentType: { type: String, required: true },
+    contentId: { type: String, index: true },  // Reference to ContentItem
     mediaUrl: { type: String },
     message: { type: String, required: true },
     

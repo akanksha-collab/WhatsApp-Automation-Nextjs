@@ -3,17 +3,15 @@ import { connectDB } from '@/lib/db/connect';
 import { Entity, ContentItem } from '@/lib/db/models';
 import { getSession } from '@/lib/auth/session';
 import { uploadToS3, getS3KeyPrefix } from '@/lib/s3';
-
-const NANO_BANANA_API_URL = process.env.NANO_BANANA_API_URL || 'https://api.nanobanana.com/v1/generate';
-const NANO_BANANA_API_KEY = process.env.NANO_BANANA_API_KEY;
+import { generateImageAsBuffer } from '@/lib/gemini/client';
 
 interface GenerateAIRequest {
   prompt: string;
-  style?: string;
+  imageSize?: '256' | '512' | '1K' | '2K';
 }
 
 // POST /api/entities/[id]/content/generate-ai
-// Generate an AI image using Nano Banana and save to S3
+// Generate an AI image using Google Gemini and save to S3
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -25,9 +23,9 @@ export async function POST(
 
   const { id: entityId } = await params;
 
-  if (!NANO_BANANA_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return NextResponse.json(
-      { error: 'AI image generation is not configured. Missing API key.' },
+      { error: 'AI image generation is not configured. Missing GEMINI_API_KEY.' },
       { status: 500 }
     );
   }
@@ -42,7 +40,7 @@ export async function POST(
 
   try {
     const body: GenerateAIRequest = await req.json();
-    const { prompt, style } = body;
+    const { prompt, imageSize } = body;
 
     if (!prompt || typeof prompt !== 'string') {
       return NextResponse.json(
@@ -51,65 +49,33 @@ export async function POST(
       );
     }
 
-    // Call Nano Banana API
-    const nanoBananaResponse = await fetch(NANO_BANANA_API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${NANO_BANANA_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt,
-        style: style || 'professional',
-        size: '1024x1024',
-      }),
+    // Generate image using Gemini
+    const result = await generateImageAsBuffer({
+      prompt,
+      imageSize: imageSize || '1K',
     });
 
-    if (!nanoBananaResponse.ok) {
-      const errorData = await nanoBananaResponse.json().catch(() => ({}));
-      console.error('Nano Banana API error:', errorData);
+    if (!result.success || !result.buffer) {
       return NextResponse.json(
-        { error: errorData.message || 'Failed to generate image' },
+        { error: result.error || 'Failed to generate image' },
         { status: 500 }
       );
     }
 
-    const nanoBananaData = await nanoBananaResponse.json();
-    
-    // Get the image URL from response
-    // Adjust this based on actual Nano Banana API response structure
-    const imageUrl = nanoBananaData.image_url || nanoBananaData.url || nanoBananaData.data?.url;
-    
-    if (!imageUrl) {
-      console.error('No image URL in Nano Banana response:', nanoBananaData);
-      return NextResponse.json(
-        { error: 'No image URL returned from AI service' },
-        { status: 500 }
-      );
-    }
-
-    // Download the image
-    const imageResponse = await fetch(imageUrl);
-    if (!imageResponse.ok) {
-      return NextResponse.json(
-        { error: 'Failed to download generated image' },
-        { status: 500 }
-      );
-    }
-
-    const imageBlob = await imageResponse.blob();
-    const imageBuffer = Buffer.from(await imageBlob.arrayBuffer());
+    // Determine file extension based on mime type
+    const mimeType = result.mimeType || 'image/png';
+    const extension = mimeType.includes('jpeg') ? 'jpg' : 'png';
 
     // Generate filename
     const timestamp = Date.now();
-    const fileName = `ai_generated_${timestamp}.png`;
+    const fileName = `ai_generated_${timestamp}.${extension}`;
 
     // Upload to S3
     const keyPrefix = `${getS3KeyPrefix(entityId, 'images')}/ai`;
     const { fileUrl, s3Key } = await uploadToS3(
-      imageBuffer,
+      result.buffer,
       fileName,
-      'image/png',
+      mimeType,
       keyPrefix
     );
 
@@ -150,4 +116,3 @@ export async function POST(
     );
   }
 }
-

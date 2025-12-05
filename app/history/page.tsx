@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { History, CheckCircle, XCircle, Clock, AlertCircle, RefreshCw, FileText, Image, Video, Link as LinkIcon, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useToast } from '@/components/ui/Toast';
 
 interface Post {
   _id: string;
@@ -38,6 +39,7 @@ interface PostHistoryEntry {
 }
 
 export default function HistoryPage() {
+  const toast = useToast();
   const [posts, setPosts] = useState<Post[]>([]);
   const [history, setHistory] = useState<PostHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -146,8 +148,9 @@ export default function HistoryPage() {
       // Remove from local state
       setPosts(prev => prev.filter(p => p._id !== postId));
       setDeleteConfirmId(null);
+      toast.success('Post Deleted', 'The scheduled post has been deleted.');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete post');
+      toast.error('Delete Failed', err instanceof Error ? err.message : 'Failed to delete post');
     } finally {
       setIsDeleting(false);
     }

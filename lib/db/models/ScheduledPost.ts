@@ -9,6 +9,7 @@ export interface IScheduledPost {
   
   // Content details
   contentType: ContentType;
+  contentId?: string;        // Reference to ContentItem (image/video)
   mediaUrl?: string;
   mediaPublicId?: string;
   message: string;
@@ -49,6 +50,7 @@ const ScheduledPostSchema = new Schema<IScheduledPostDocument>(
       enum: ['image', 'video', 'text', 'youtube', 'podcast', 'article'],
       required: true 
     },
+    contentId: { type: String, index: true },  // Reference to ContentItem
     mediaUrl: { type: String },
     mediaPublicId: { type: String },
     message: { type: String, required: true },

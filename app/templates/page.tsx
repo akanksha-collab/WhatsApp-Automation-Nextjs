@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Plus, Edit, Trash2, Image, Video, FileText, Link as LinkIcon, Check, AlertCircle, ChevronDown, Zap, ArrowUp, Minus, ArrowDown } from 'lucide-react';
+import { useToast } from '@/components/ui/Toast';
 
 type TemplatePriority = 'urgent' | 'high' | 'medium' | 'low';
 type TemplateContentType = 'image' | 'video' | 'text' | 'link';
@@ -71,6 +72,7 @@ const PLACEHOLDER_GROUPS = [
 ];
 
 export default function TemplatesPage() {
+  const toast = useToast();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -144,12 +146,17 @@ export default function TemplatesPage() {
 
       if (!res.ok) {
         setError(data.error || 'Failed to save template');
+        toast.error('Save Failed', data.error || 'Failed to save template');
         return;
       }
 
       setShowModal(false);
       resetForm();
       fetchTemplates();
+      toast.success(
+        isEditing ? 'Template Updated' : 'Template Created',
+        `Successfully ${isEditing ? 'updated' : 'created'} the template.`
+      );
     } catch {
       setError('Something went wrong');
     } finally {
@@ -165,14 +172,16 @@ export default function TemplatesPage() {
 
       if (!res.ok) {
         const data = await res.json();
-        console.error('Failed to delete:', data.error);
+        toast.error('Delete Failed', data.error || 'Failed to delete template');
         return;
       }
 
       setShowDeleteConfirm(null);
       fetchTemplates();
+      toast.success('Template Deleted', 'The template has been successfully deleted.');
     } catch (error) {
       console.error('Failed to delete template:', error);
+      toast.error('Delete Failed', 'An unexpected error occurred');
     }
   };
 

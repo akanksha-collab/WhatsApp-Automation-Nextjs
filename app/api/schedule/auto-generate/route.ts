@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
-import { generateWeeklySchedule } from '@/lib/scheduler/generator';
+import { generateWeeklySchedule, generateDaySchedule, ScheduleGenerationResult } from '@/lib/scheduler/generator';
 
 export async function POST(req: Request) {
   const session = await getSession();
@@ -10,26 +10,48 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const weekStartDate = body.weekStartDate 
-      ? new Date(body.weekStartDate) 
-      : undefined;
+    const { weekStartDate, targetDate, mode } = body;
+    
+    let result: ScheduleGenerationResult;
+    
+    if (mode === 'day' || targetDate) {
+      // Generate for a single day
+      result = await generateDaySchedule({
+        userId: session.user.id,
+        targetDate: targetDate ? new Date(targetDate) : undefined,
+      });
+    } else {
+      // Generate for the week
+      result = await generateWeeklySchedule({
+        userId: session.user.id,
+        weekStartDate: weekStartDate ? new Date(weekStartDate) : undefined,
+      });
+    }
 
-    const postsCreated = await generateWeeklySchedule({
-      userId: session.user.id,
-      weekStartDate,
-    });
+    if (!result.success) {
+      return NextResponse.json({
+        success: false,
+        postsCreated: 0,
+        message: result.message,
+        details: result.details,
+      }, { status: 400 });
+    }
 
     return NextResponse.json({
       success: true,
-      postsCreated,
-      message: `Successfully scheduled ${postsCreated} posts`,
+      postsCreated: result.postsCreated,
+      message: result.message,
+      details: result.details,
     });
   } catch (error) {
     console.error('Schedule generation error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to generate schedule' },
+      { 
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to generate schedule',
+        postsCreated: 0,
+      },
       { status: 500 }
     );
   }
 }
-

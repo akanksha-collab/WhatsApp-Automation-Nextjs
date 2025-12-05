@@ -10,6 +10,13 @@ import {
   calculateEntityPriorityLevel, 
   mapEntityPriorityToTemplatePriority 
 } from '@/lib/scheduler/template-matcher';
+import {
+  selectContent,
+  getUsedContentIdsForEntityOnDay,
+  getLastContentTypeForEntity,
+  markContentAsUsed,
+  hasYouTubePlaceholder,
+} from '@/lib/scheduler/content-selector';
 
 export async function GET(req: Request) {
   const session = await getSession();
@@ -171,9 +178,10 @@ export async function POST(req: Request) {
     entityId, 
     templateId, 
     scheduledAt, 
-    contentType,
     customMessage,
-    mediaUrl,
+    // Optional: explicitly provide content
+    contentId: providedContentId,
+    mediaUrl: providedMediaUrl,
     link,
   } = body;
 
@@ -193,9 +201,6 @@ export async function POST(req: Request) {
   const scheduledDate = new Date(scheduledAt);
   
   let message = customMessage || '';
-  let finalContentType = contentType || 'text';
-  const finalMediaUrl = mediaUrl;
-  const finalLink = link;
   let usedTemplateId: string | undefined;
   let usedTemplateName: string | undefined;
 
@@ -216,7 +221,6 @@ export async function POST(req: Request) {
     
     if (template) {
       message = applyTemplate(template.template, entity as unknown as Record<string, unknown>);
-      finalContentType = template.contentType;
       usedTemplateId = template._id.toString();
       usedTemplateName = template.name;
       
@@ -246,7 +250,6 @@ export async function POST(req: Request) {
     
     if (bestMatch) {
       message = applyTemplate(bestMatch.template.template, entity as unknown as Record<string, unknown>);
-      finalContentType = bestMatch.template.contentType;
       usedTemplateId = bestMatch.templateId;
       usedTemplateName = bestMatch.templateName;
       
@@ -263,12 +266,54 @@ export async function POST(req: Request) {
     message = generateDefaultMessage(entity as unknown as Record<string, unknown>);
     usedTemplateName = 'Default Message (No Templates)';
   }
+
+  // Content selection
+  let contentId: string | undefined = providedContentId;
+  let mediaUrl: string | undefined = providedMediaUrl;
+  let finalContentType: string = 'text';
+  let finalLink: string | undefined = link;
+
+  // If content wasn't explicitly provided, auto-select
+  if (!contentId && !mediaUrl) {
+    // Get content exclusion list for same-day rule
+    const excludeContentIds = await getUsedContentIdsForEntityOnDay(entityId, scheduledDate);
+    
+    // Get last content type for type rotation
+    const lastContentType = await getLastContentTypeForEntity(entityId);
+    
+    // Select content based on new rules
+    const contentResult = await selectContent({
+      entityId,
+      templateText: message,
+      scheduledDate,
+      excludeContentIds,
+      lastContentType,
+    });
+    
+    if (contentResult.contentId && contentResult.contentType && contentResult.fileUrl) {
+      contentId = contentResult.contentId;
+      mediaUrl = contentResult.fileUrl;
+      finalContentType = contentResult.contentType;
+      
+      // Mark content as used
+      await markContentAsUsed(contentResult.contentId);
+    } else if (hasYouTubePlaceholder(message)) {
+      // If template has YouTube placeholder, set type accordingly
+      finalContentType = 'youtube';
+    }
+  } else if (contentId || mediaUrl) {
+    // Content was explicitly provided
+    finalContentType = providedMediaUrl?.includes('.mp4') || providedMediaUrl?.includes('.mov') 
+      ? 'video' 
+      : 'image';
+  }
   
   const post = await ScheduledPost.create({
     userId: session.user.id,
     entityId,
     contentType: finalContentType,
-    mediaUrl: finalMediaUrl,
+    contentId,
+    mediaUrl,
     message,
     link: finalLink,
     templateId: usedTemplateId,

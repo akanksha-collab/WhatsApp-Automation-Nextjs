@@ -17,6 +17,7 @@ import {
   Loader2,
   CheckCircle
 } from 'lucide-react';
+import { useToast } from '@/components/ui/Toast';
 
 interface FileWithPreview {
   file: File;
@@ -31,6 +32,7 @@ const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
 
 export default function NewEntityPage() {
   const router = useRouter();
+  const toast = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const [error, setError] = useState('');
@@ -331,7 +333,9 @@ export default function NewEntityPage() {
 
       // Show results
       if (failedUploads.length > 0) {
-        alert(`Case created! Some files failed to upload: ${failedUploads.join(', ')}`);
+        toast.warning('Case Created with Warnings', `Some files failed to upload: ${failedUploads.join(', ')}`);
+      } else {
+        toast.success('Case Created!', 'Entity has been successfully created.');
       }
 
       // Redirect to entity page

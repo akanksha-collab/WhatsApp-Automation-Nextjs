@@ -1,19 +1,34 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Image, Video, FileText, Link as LinkIcon, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Image, Video, FileText, Link as LinkIcon, RefreshCw, CalendarDays } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, addWeeks, subWeeks } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
+import { useToast } from '@/components/ui/Toast';
+import PostPreviewModal from '@/components/ui/PostPreviewModal';
+
+// All date/time operations should use NY timezone for consistency
+const NY_TIMEZONE = 'America/New_York';
 
 interface ScheduledPost {
   _id: string;
   entityId: string;
   contentType: 'image' | 'video' | 'text' | 'youtube' | 'podcast' | 'article';
+  contentId?: string;
+  mediaUrl?: string;
   message: string;
+  link?: string;
+  templateId?: string;
+  templateName?: string;
   scheduledAt: string;
+  scheduledDay: string;
   status: 'scheduled' | 'processing' | 'sent' | 'failed' | 'cancelled';
+  sentAt?: string;
+  errorMessage?: string;
   entity?: {
     companyName: string;
     tickerSymbol: string;
+    leadPlaintiffDate?: string;
   };
 }
 
@@ -24,6 +39,11 @@ export default function CalendarPage() {
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingToday, setIsGeneratingToday] = useState(false);
+  const [selectedPost, setSelectedPost] = useState<ScheduledPost | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  
+  const toast = useToast();
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeek, i));
 
@@ -41,6 +61,7 @@ export default function CalendarPage() {
       setPosts(data.posts || []);
     } catch (error) {
       console.error('Failed to fetch posts:', error);
+      toast.error('Failed to load posts', 'Unable to fetch scheduled posts from the server.');
     } finally {
       setIsLoading(false);
     }
@@ -55,24 +76,103 @@ export default function CalendarPage() {
         body: JSON.stringify({ weekStartDate: currentWeek.toISOString() }),
       });
       const data = await res.json();
-      if (res.ok) {
-        alert(`Successfully scheduled ${data.postsCreated} posts!`);
+      
+      if (res.ok && data.success) {
+        toast.success(
+          'Schedule Generated!', 
+          `Successfully scheduled ${data.postsCreated} posts for the week.`
+        );
         fetchPosts();
       } else {
-        alert(data.error || 'Failed to generate schedule');
+        // Handle specific error messages
+        handleScheduleError(data);
       }
     } catch (error) {
       console.error('Failed to generate schedule:', error);
-      alert('Failed to generate schedule');
+      toast.error('Generation Failed', 'An unexpected error occurred while generating the schedule.');
     } finally {
       setIsGenerating(false);
     }
   };
 
+  const handleAutoGenerateToday = async () => {
+    setIsGeneratingToday(true);
+    try {
+      const res = await fetch('/api/schedule/auto-generate-today', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      
+      if (res.ok && data.success) {
+        toast.success(
+          'Today\'s Schedule Generated!', 
+          `Successfully scheduled ${data.postsCreated} posts for today.`
+        );
+        fetchPosts();
+      } else {
+        // Handle specific error messages
+        handleScheduleError(data);
+      }
+    } catch (error) {
+      console.error('Failed to generate today\'s schedule:', error);
+      toast.error('Generation Failed', 'An unexpected error occurred while generating today\'s schedule.');
+    } finally {
+      setIsGeneratingToday(false);
+    }
+  };
+
+  const handleScheduleError = (data: { message?: string; error?: string; details?: { skippedPastSlots?: number; skippedExpiredEntities?: number } }) => {
+    const message = data.message || data.error || 'Failed to generate schedule';
+    
+    // Determine error type and show appropriate toast
+    if (message.includes('No active entities')) {
+      toast.warning(
+        'No Active Cases', 
+        'All entities are either expired or paused. Add or activate entities to schedule posts.'
+      );
+    } else if (message.includes('All time slots') && message.includes('passed')) {
+      toast.warning(
+        'No Available Time Slots', 
+        'All time slots for this period have already passed. Try scheduling for a future date.'
+      );
+    } else if (message.includes('expired')) {
+      toast.warning(
+        'Deadlines Passed', 
+        'All entity deadlines have passed for this date. No posts were scheduled.'
+      );
+    } else if (message.includes('not configured')) {
+      toast.error(
+        'Configuration Required', 
+        message
+      );
+    } else if (message.includes('No active time slots')) {
+      toast.warning(
+        'No Time Slots', 
+        'No active time slots are configured. Go to Schedule Settings to add time slots.'
+      );
+    } else {
+      toast.error('Schedule Generation Failed', message);
+    }
+  };
+
+  const handlePostClick = (post: ScheduledPost) => {
+    setSelectedPost(post);
+    setIsPreviewOpen(true);
+  };
+
+  /**
+   * Get posts for a specific day and hour, using NY timezone for comparison.
+   * Posts are stored in UTC, so we need to convert to NY timezone before comparing.
+   */
   const getPostsForDayAndHour = (day: Date, hour: number) => {
     return posts.filter(post => {
-      const postDate = new Date(post.scheduledAt);
-      return isSameDay(postDate, day) && postDate.getHours() === hour;
+      // Convert the UTC scheduled time to NY timezone for proper comparison
+      const postDateInNY = toZonedTime(new Date(post.scheduledAt), NY_TIMEZONE);
+      // The day passed to this function is already in the context of the calendar view
+      // We need to compare in NY timezone
+      const dayInNY = toZonedTime(day, NY_TIMEZONE);
+      return isSameDay(postDateInNY, dayInNY) && postDateInNY.getHours() === hour;
     });
   };
 
@@ -109,14 +209,24 @@ export default function CalendarPage() {
             Visual view of all scheduled posts
           </p>
         </div>
-        <button
-          onClick={handleAutoGenerate}
-          disabled={isGenerating}
-          className="flex items-center gap-2 px-4 py-2 bg-whatsapp-green text-white rounded-lg font-medium hover:bg-whatsapp-teal transition-colors shadow-sm disabled:opacity-50"
-        >
-          <RefreshCw size={18} className={isGenerating ? 'animate-spin' : ''} />
-          {isGenerating ? 'Generating...' : 'Auto Generate Week'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleAutoGenerateToday}
+            disabled={isGeneratingToday}
+            className="flex items-center gap-2 px-4 py-2 bg-whatsapp-teal text-white rounded-lg font-medium hover:bg-whatsapp-dark-teal transition-colors shadow-sm disabled:opacity-50"
+          >
+            <CalendarDays size={18} className={isGeneratingToday ? 'animate-pulse' : ''} />
+            {isGeneratingToday ? 'Generating...' : 'Generate Today'}
+          </button>
+          <button
+            onClick={handleAutoGenerate}
+            disabled={isGenerating}
+            className="flex items-center gap-2 px-4 py-2 bg-whatsapp-green text-white rounded-lg font-medium hover:bg-whatsapp-teal transition-colors shadow-sm disabled:opacity-50"
+          >
+            <RefreshCw size={18} className={isGenerating ? 'animate-spin' : ''} />
+            {isGenerating ? 'Generating...' : 'Auto Generate Week'}
+          </button>
+        </div>
       </header>
 
       {/* Week Navigation */}
@@ -155,7 +265,10 @@ export default function CalendarPage() {
             <table className="w-full min-w-[800px]">
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th className="w-16 p-3 text-xs font-semibold text-gray-500 text-left">Time</th>
+                  <th className="w-16 p-3 text-xs font-semibold text-gray-500 text-left">
+                    <span>Time</span>
+                    <span className="block text-[10px] text-blue-500 font-normal">(NY)</span>
+                  </th>
                   {weekDays.map((day) => (
                     <th key={day.toISOString()} className="p-3 text-center">
                       <div className={`text-xs font-semibold ${
@@ -188,13 +301,14 @@ export default function CalendarPage() {
                             {dayPosts.map((post) => (
                               <div
                                 key={post._id}
-                                className={`p-1.5 rounded text-xs border-l-2 ${getStatusColor(post.status)} cursor-pointer hover:opacity-80 transition-opacity`}
-                                title={post.message}
+                                onClick={() => handlePostClick(post)}
+                                className={`p-1.5 rounded text-xs border-l-2 ${getStatusColor(post.status)} cursor-pointer hover:opacity-80 hover:shadow-md transition-all`}
+                                title="Click to view details"
                               >
                                 <div className="flex items-center gap-1">
                                   {getContentIcon(post.contentType)}
                                   <span className="truncate font-medium">
-                                    {post.message.slice(0, 20)}...
+                                    {post.entity?.tickerSymbol || post.message.slice(0, 15)}...
                                   </span>
                                 </div>
                               </div>
@@ -230,6 +344,16 @@ export default function CalendarPage() {
           <span>Processing</span>
         </div>
       </div>
+
+      {/* Post Preview Modal */}
+      <PostPreviewModal
+        post={selectedPost}
+        isOpen={isPreviewOpen}
+        onClose={() => {
+          setIsPreviewOpen(false);
+          setSelectedPost(null);
+        }}
+      />
     </div>
   );
 }

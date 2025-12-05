@@ -3,6 +3,7 @@ import { connectDB } from '@/lib/db/connect';
 import { ScheduledPost } from '@/lib/db/models/ScheduledPost';
 import { PostHistory } from '@/lib/db/models/PostHistory';
 import { Entity } from '@/lib/db/models/Entity';
+import { ContentItem } from '@/lib/db/models/ContentItem';
 import { ScheduleSettings } from '@/lib/db/models/ScheduleSettings';
 import { getMaytapiClient } from '@/lib/maytapi/client';
 
@@ -42,21 +43,33 @@ export async function GET(req: Request) {
 
       const maytapi = getMaytapiClient();
       let response;
+      let mediaUrlToSend: string | undefined = post.mediaUrl;
 
-      // Send based on content type
-      if (post.contentType === 'image' || post.contentType === 'video') {
+      // If we have a contentId, get the content item to get the current URL
+      if (post.contentId) {
+        const contentItem = await ContentItem.findById(post.contentId).lean();
+        if (contentItem && contentItem.isActive) {
+          mediaUrlToSend = contentItem.fileUrl;
+        }
+      }
+
+      // Send based on content type and available media
+      if ((post.contentType === 'image' || post.contentType === 'video') && mediaUrlToSend) {
+        // Send with image/video attachment
         response = await maytapi.sendMediaMessage(
           settings.whatsappChannelId,
-          post.mediaUrl!,
+          mediaUrlToSend,
           post.message
         );
       } else if (post.link) {
+        // Send text with link (WhatsApp will auto-preview)
         response = await maytapi.sendLinkMessage(
           settings.whatsappChannelId,
           post.message,
           post.link
         );
       } else {
+        // Send text-only message
         response = await maytapi.sendTextMessage(
           settings.whatsappChannelId,
           post.message
@@ -76,11 +89,12 @@ export async function GET(req: Request) {
           entityId: post.entityId,
           scheduledPostId: post._id.toString(),
           contentType: post.contentType,
-          mediaUrl: post.mediaUrl,
+          contentId: post.contentId,
+          mediaUrl: mediaUrlToSend,
           message: post.message,
           sentAt: new Date(),
           maytapiMessageId: response.data?.msgId || '',
-          contentHash: `${post.contentType}:${post.mediaUrl || post.link || post.message}`,
+          contentHash: `${post.contentType}:${post.contentId || mediaUrlToSend || post.link || post.message}`,
         });
 
         // Update entity stats
@@ -111,4 +125,3 @@ export async function GET(req: Request) {
     results,
   });
 }
-
