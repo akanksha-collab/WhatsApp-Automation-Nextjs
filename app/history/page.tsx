@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { History, CheckCircle, XCircle, Clock, AlertCircle, RefreshCw, FileText, Image, Video, Link as LinkIcon, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { useState, useEffect, useMemo } from 'react';
+import { History, CheckCircle, XCircle, Clock, AlertCircle, RefreshCw, FileText, Image, Video, Link as LinkIcon, ChevronDown, ChevronUp, Trash2, Search, Filter, X, Calendar } from 'lucide-react';
+import { format, isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { useToast } from '@/components/ui/Toast';
 
 interface Post {
@@ -38,10 +38,28 @@ interface PostHistoryEntry {
   };
 }
 
+interface Entity {
+  _id: string;
+  companyName: string;
+  tickerSymbol: string;
+}
+
+const CONTENT_TYPE_OPTIONS = [
+  { value: 'all', label: 'All Types' },
+  { value: 'image', label: 'Image' },
+  { value: 'video', label: 'Video' },
+  { value: 'text', label: 'Text' },
+  { value: 'youtube', label: 'YouTube' },
+  { value: 'podcast', label: 'Podcast' },
+  { value: 'article', label: 'Article' },
+  { value: 'link', label: 'Link' },
+];
+
 export default function HistoryPage() {
   const toast = useToast();
   const [posts, setPosts] = useState<Post[]>([]);
   const [history, setHistory] = useState<PostHistoryEntry[]>([]);
+  const [entities, setEntities] = useState<Entity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'scheduled' | 'sent' | 'failed'>('scheduled');
   const [expandedPost, setExpandedPost] = useState<string | null>(null);
@@ -50,8 +68,17 @@ export default function HistoryPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Search and filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterEntity, setFilterEntity] = useState('all');
+  const [filterContentType, setFilterContentType] = useState('all');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+
   useEffect(() => {
     fetchData();
+    fetchEntities();
   }, []);
 
   const fetchData = async () => {
@@ -70,6 +97,16 @@ export default function HistoryPage() {
       console.error('Failed to fetch data:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchEntities = async () => {
+    try {
+      const res = await fetch('/api/entities?limit=100');
+      const data = await res.json();
+      setEntities(data.entities || []);
+    } catch (error) {
+      console.error('Failed to fetch entities:', error);
     }
   };
 
@@ -156,17 +193,72 @@ export default function HistoryPage() {
     }
   };
 
+  // Apply filters to posts
+  const filterPosts = useMemo(() => {
+    return (postsToFilter: Post[]) => {
+      return postsToFilter.filter(post => {
+        // Search filter - matches entity name, ticker, or message
+        const matchesSearch = searchQuery === '' || 
+          post.entity?.companyName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          post.entity?.tickerSymbol?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          post.message.toLowerCase().includes(searchQuery.toLowerCase());
+        
+        // Entity filter
+        const matchesEntity = filterEntity === 'all' || post.entityId === filterEntity;
+        
+        // Content type filter
+        const matchesContentType = filterContentType === 'all' || post.contentType === filterContentType;
+        
+        // Date range filter
+        let matchesDate = true;
+        const postDate = post.status === 'sent' && post.sentAt 
+          ? new Date(post.sentAt) 
+          : new Date(post.scheduledAt);
+        
+        if (filterDateFrom || filterDateTo) {
+          const fromDate = filterDateFrom ? startOfDay(parseISO(filterDateFrom)) : null;
+          const toDate = filterDateTo ? endOfDay(parseISO(filterDateTo)) : null;
+          
+          if (fromDate && toDate) {
+            matchesDate = isWithinInterval(postDate, { start: fromDate, end: toDate });
+          } else if (fromDate) {
+            matchesDate = postDate >= fromDate;
+          } else if (toDate) {
+            matchesDate = postDate <= toDate;
+          }
+        }
+        
+        return matchesSearch && matchesEntity && matchesContentType && matchesDate;
+      });
+    };
+  }, [searchQuery, filterEntity, filterContentType, filterDateFrom, filterDateTo]);
+
   const scheduledPosts = posts.filter(p => p.status === 'scheduled' || p.status === 'processing');
   const sentPosts = posts.filter(p => p.status === 'sent');
   const failedPosts = posts.filter(p => p.status === 'failed');
 
+  // Apply filters based on active tab
+  const filteredScheduledPosts = filterPosts(scheduledPosts);
+  const filteredSentPosts = filterPosts(sentPosts);
+  const filteredFailedPosts = filterPosts(failedPosts);
+
   const getDisplayPosts = () => {
     switch (activeTab) {
-      case 'scheduled': return scheduledPosts;
-      case 'sent': return sentPosts;
-      case 'failed': return failedPosts;
+      case 'scheduled': return filteredScheduledPosts;
+      case 'sent': return filteredSentPosts;
+      case 'failed': return filteredFailedPosts;
       default: return [];
     }
+  };
+
+  const hasActiveFilters = searchQuery !== '' || filterEntity !== 'all' || filterContentType !== 'all' || filterDateFrom !== '' || filterDateTo !== '';
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setFilterEntity('all');
+    setFilterContentType('all');
+    setFilterDateFrom('');
+    setFilterDateTo('');
   };
 
   const toggleExpand = (postId: string) => {
@@ -174,7 +266,7 @@ export default function HistoryPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Page header */}
       <header className="flex items-center justify-between">
         <div>
@@ -194,6 +286,175 @@ export default function HistoryPage() {
           Refresh
         </button>
       </header>
+
+      {/* Search and Filters */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+        <div className="flex flex-col lg:flex-row gap-4">
+          {/* Search Input */}
+          <div className="flex-1 relative">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by entity name, ticker, or message..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent transition-all"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+          
+          {/* Filter Toggle Button (Mobile) */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`lg:hidden flex items-center gap-2 px-4 py-2.5 border rounded-lg font-medium transition-colors ${
+              hasActiveFilters 
+                ? 'border-whatsapp-green bg-whatsapp-light-green text-whatsapp-dark-teal' 
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <Filter size={18} />
+            Filters
+            {hasActiveFilters && (
+              <span className="bg-whatsapp-green text-white text-xs px-1.5 py-0.5 rounded-full">
+                {[filterEntity !== 'all', filterContentType !== 'all', filterDateFrom, filterDateTo].filter(Boolean).length}
+              </span>
+            )}
+          </button>
+
+          {/* Desktop Filters */}
+          <div className="hidden lg:flex items-center gap-3">
+            <select
+              value={filterEntity}
+              onChange={(e) => setFilterEntity(e.target.value)}
+              className="px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm min-w-[160px]"
+            >
+              <option value="all">All Entities</option>
+              {entities.map(entity => (
+                <option key={entity._id} value={entity._id}>
+                  {entity.companyName} ({entity.tickerSymbol})
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={filterContentType}
+              onChange={(e) => setFilterContentType(e.target.value)}
+              className="px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+            >
+              {CONTENT_TYPE_OPTIONS.map(type => (
+                <option key={type.value} value={type.value}>{type.label}</option>
+              ))}
+            </select>
+
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="date"
+                  value={filterDateFrom}
+                  onChange={(e) => setFilterDateFrom(e.target.value)}
+                  className="pl-9 pr-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+                  placeholder="From"
+                />
+              </div>
+              <span className="text-gray-400">to</span>
+              <input
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                className="px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+                placeholder="To"
+              />
+            </div>
+
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="flex items-center gap-1 px-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <X size={16} />
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Mobile Filters Dropdown */}
+        {showFilters && (
+          <div className="lg:hidden mt-4 pt-4 border-t border-gray-100 space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5 uppercase">Entity</label>
+              <select
+                value={filterEntity}
+                onChange={(e) => setFilterEntity(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+              >
+                <option value="all">All Entities</option>
+                {entities.map(entity => (
+                  <option key={entity._id} value={entity._id}>
+                    {entity.companyName} ({entity.tickerSymbol})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5 uppercase">Content Type</label>
+              <select
+                value={filterContentType}
+                onChange={(e) => setFilterContentType(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+              >
+                {CONTENT_TYPE_OPTIONS.map(type => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5 uppercase">From Date</label>
+                <input
+                  type="date"
+                  value={filterDateFrom}
+                  onChange={(e) => setFilterDateFrom(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5 uppercase">To Date</label>
+                <input
+                  type="date"
+                  value={filterDateTo}
+                  onChange={(e) => setFilterDateTo(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+                />
+              </div>
+            </div>
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg transition-colors"
+              >
+                <X size={16} />
+                Clear All Filters
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Results count */}
+        {posts.length > 0 && hasActiveFilters && (
+          <div className="mt-3 text-sm text-gray-500">
+            Showing {getDisplayPosts().length} of {activeTab === 'scheduled' ? scheduledPosts.length : activeTab === 'sent' ? sentPosts.length : failedPosts.length} posts (filtered)
+          </div>
+        )}
+      </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-3 gap-4">
@@ -236,9 +497,9 @@ export default function HistoryPage() {
       <div className="border-b border-gray-200">
         <nav className="flex gap-4">
           {[
-            { id: 'scheduled', label: 'Scheduled', count: scheduledPosts.length },
-            { id: 'sent', label: 'Sent', count: sentPosts.length },
-            { id: 'failed', label: 'Failed', count: failedPosts.length },
+            { id: 'scheduled', label: 'Scheduled', count: filteredScheduledPosts.length, total: scheduledPosts.length },
+            { id: 'sent', label: 'Sent', count: filteredSentPosts.length, total: sentPosts.length },
+            { id: 'failed', label: 'Failed', count: filteredFailedPosts.length, total: failedPosts.length },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -253,7 +514,7 @@ export default function HistoryPage() {
               <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
                 activeTab === tab.id ? 'bg-whatsapp-light-green text-whatsapp-dark-teal' : 'bg-gray-100 text-gray-600'
               }`}>
-                {tab.count}
+                {hasActiveFilters && tab.count !== tab.total ? `${tab.count}/${tab.total}` : tab.count}
               </span>
             </button>
           ))}
@@ -264,6 +525,21 @@ export default function HistoryPage() {
       <div className="space-y-3">
         {isLoading ? (
           <div className="text-center py-12 text-gray-500">Loading...</div>
+        ) : getDisplayPosts().length === 0 && hasActiveFilters ? (
+          <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
+            <Search size={48} className="mx-auto text-gray-400 mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No matching posts</h3>
+            <p className="text-gray-600 mb-6">
+              Try adjusting your search or filter criteria
+            </p>
+            <button
+              onClick={clearFilters}
+              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+            >
+              <X size={20} />
+              Clear Filters
+            </button>
+          </div>
         ) : getDisplayPosts().length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
             <History size={48} className="mx-auto text-gray-400 mb-4" />

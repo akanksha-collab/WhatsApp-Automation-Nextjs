@@ -3,6 +3,7 @@ import { connectDB } from '@/lib/db/connect';
 import { Entity } from '@/lib/db/models/Entity';
 import { ContentItem } from '@/lib/db/models/ContentItem';
 import { getSession } from '@/lib/auth/session';
+import { startOfDay } from 'date-fns';
 
 export async function GET(req: Request) {
   const session = await getSession();
@@ -13,12 +14,24 @@ export async function GET(req: Request) {
   await connectDB();
 
   const { searchParams } = new URL(req.url);
-  const status = searchParams.get('status') || 'active';
+  const filter = searchParams.get('status') || 'active'; // 'active' or 'expired'
   const page = parseInt(searchParams.get('page') || '1');
   const limit = parseInt(searchParams.get('limit') || '20');
   const sortBy = searchParams.get('sortBy') || 'leadPlaintiffDate';
 
-  const query = { userId: session.user.id, status };
+  // Get start of today for deadline comparison
+  const todayStart = startOfDay(new Date());
+
+  // Build query based on filter: 'active' = deadline not passed, 'expired' = deadline passed
+  const query: Record<string, unknown> = { userId: session.user.id };
+  
+  if (filter === 'active') {
+    // Active: deadline is today or in the future
+    query.leadPlaintiffDate = { $gte: todayStart };
+  } else if (filter === 'expired') {
+    // Expired: deadline has passed
+    query.leadPlaintiffDate = { $lt: todayStart };
+  }
   
   const [entities, total] = await Promise.all([
     Entity.find(query)

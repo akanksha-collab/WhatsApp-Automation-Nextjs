@@ -1,6 +1,6 @@
 import { EntityPriority, PriorityLevel } from './priority';
 import { fromZonedTime } from 'date-fns-tz';
-import { setHours, setMinutes } from 'date-fns';
+import { parse, setHours, setMinutes, format } from 'date-fns';
 
 /**
  * Priority ratios for slot allocation.
@@ -185,11 +185,16 @@ export function distributeWithinPriority(
  * 3. Redistribute slots from empty priorities
  * 4. Distribute within each priority (equal, extra to sooner deadlines)
  * 5. Assign actual time slots to entities
+ * 
+ * @param entities - List of entities with calculated priorities
+ * @param slots - Available time slots for the day
+ * @param dateString - Date in YYYY-MM-DD format (represents the calendar date in user's timezone)
+ * @param timezone - User's timezone (e.g., 'America/New_York')
  */
 export function allocateSlots(
   entities: EntityPriority[],
   slots: { id: string; time: string }[],
-  date: Date,
+  dateString: string,
   timezone: string
 ): AllocationResult {
   const allocations: SlotAllocation[] = [];
@@ -263,9 +268,16 @@ export function allocateSlots(
     const slot = slots[i];
     const entity = allocationQueue[i];
     
-    const [hours, minutes] = slot.time.split(':').map(Number);
-    const localTime = setHours(setMinutes(date, minutes), hours);
-    const scheduledTime = fromZonedTime(localTime, timezone);
+    // Parse the date string and time slot to create a datetime in the user's timezone
+    // Then convert to UTC for storage
+    // dateString is in YYYY-MM-DD format, slot.time is in HH:mm format
+    const dateTimeString = `${dateString} ${slot.time}`;
+    const localDateTime = parse(dateTimeString, 'yyyy-MM-dd HH:mm', new Date());
+    
+    // fromZonedTime converts a "local time in timezone" to the equivalent UTC time
+    // This means: if dateTimeString is "2025-12-08 09:00" and timezone is "America/New_York",
+    // we get the UTC time that corresponds to 9:00 AM in New York on Dec 8
+    const scheduledTime = fromZonedTime(localDateTime, timezone);
     
     allocations.push({
       slotId: slot.id,

@@ -375,6 +375,8 @@ export default function EntityDetailPage({ params }: { params: Promise<{ id: str
               tickerSymbol: entity.tickerSymbol,
               allegations: entity.allegations,
               leadPlaintiffDate: entity.leadPlaintiffDate,
+              classPeriodStart: entity.classPeriodStart,
+              classPeriodEnd: entity.classPeriodEnd,
             }}
           />
         )}

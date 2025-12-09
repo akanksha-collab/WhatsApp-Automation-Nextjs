@@ -361,8 +361,7 @@ export default function EntitiesPage() {
           className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white"
         >
           <option value="active">Active</option>
-          <option value="paused">Paused</option>
-          <option value="completed">Completed</option>
+          <option value="expired">Expired</option>
         </select>
       </div>
 
@@ -418,13 +417,16 @@ export default function EntitiesPage() {
                       <MoreVertical size={18} className="text-gray-500" />
                     </button>
                     <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[140px]">
-                      <button
-                        onClick={(e) => openScheduleModal(entity, e)}
-                        className="flex items-center gap-2 px-4 py-2 hover:bg-whatsapp-light-green text-sm text-whatsapp-dark-teal w-full"
-                      >
-                        <Send size={16} />
-                        Schedule Post
-                      </button>
+                      {/* Only show Schedule Post option for active entities */}
+                      {daysUntil >= 0 && (
+                        <button
+                          onClick={(e) => openScheduleModal(entity, e)}
+                          className="flex items-center gap-2 px-4 py-2 hover:bg-whatsapp-light-green text-sm text-whatsapp-dark-teal w-full"
+                        >
+                          <Send size={16} />
+                          Schedule Post
+                        </button>
+                      )}
                       <Link
                         href={`/entities/${entity._id}/edit`}
                         className="flex items-center gap-2 px-4 py-2 hover:bg-whatsapp-beige text-sm text-gray-700"
@@ -467,14 +469,16 @@ export default function EntitiesPage() {
                   </div>
                 </div>
 
-                {/* Schedule Button */}
-                <button
-                  onClick={(e) => openScheduleModal(entity, e)}
-                  className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-2 bg-whatsapp-green text-white rounded-lg font-medium hover:bg-whatsapp-teal transition-colors"
-                >
-                  <Send size={16} />
-                  Schedule Post
-                </button>
+                {/* Schedule Button - Only show for active entities (deadline not passed) */}
+                {daysUntil >= 0 && (
+                  <button
+                    onClick={(e) => openScheduleModal(entity, e)}
+                    className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-2 bg-whatsapp-green text-white rounded-lg font-medium hover:bg-whatsapp-teal transition-colors"
+                  >
+                    <Send size={16} />
+                    Schedule Post
+                  </button>
+                )}
 
                 <div className="flex items-center justify-between pt-4 border-t border-gray-100">
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${priority.class}`}>

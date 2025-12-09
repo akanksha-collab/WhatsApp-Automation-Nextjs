@@ -1,7 +1,8 @@
 'use client';
 
-import { X, Image, Video, FileText, Link as LinkIcon, Calendar, Clock, Building2, Tag, User } from 'lucide-react';
-import { format } from 'date-fns';
+import { useState } from 'react';
+import { X, Image, Video, FileText, Link as LinkIcon, Calendar, Clock, Building2, Tag, Trash2, AlertTriangle } from 'lucide-react';
+import { format, isBefore } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
 // All date/time display should use NY timezone for consistency
@@ -33,10 +34,27 @@ interface PostPreviewModalProps {
   post: ScheduledPost | null;
   isOpen: boolean;
   onClose: () => void;
+  onDelete?: (postId: string) => Promise<void>;
 }
 
-export default function PostPreviewModal({ post, isOpen, onClose }: PostPreviewModalProps) {
+export default function PostPreviewModal({ post, isOpen, onClose, onDelete }: PostPreviewModalProps) {
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   if (!isOpen || !post) return null;
+
+  const canDelete = post.status === 'scheduled' && !isBefore(new Date(post.scheduledAt), new Date());
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    setIsDeleting(true);
+    try {
+      await onDelete(post._id);
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
 
   const getContentIcon = (type: string) => {
     switch (type) {
@@ -245,7 +263,20 @@ export default function PostPreviewModal({ post, isOpen, onClose }: PostPreviewM
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-          <div className="flex justify-end">
+          <div className="flex justify-between">
+            {/* Delete Button - only show for scheduled posts that haven't passed */}
+            <div>
+              {canDelete && onDelete && (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={isDeleting}
+                  className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors disabled:opacity-50"
+                >
+                  <Trash2 size={18} />
+                  Delete Scheduled Post
+                </button>
+              )}
+            </div>
             <button
               onClick={onClose}
               className="px-4 py-2 bg-whatsapp-green text-white rounded-lg font-medium hover:bg-whatsapp-teal transition-colors"
@@ -255,6 +286,53 @@ export default function PostPreviewModal({ post, isOpen, onClose }: PostPreviewM
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div 
+            className="absolute inset-0 bg-black/30" 
+            onClick={() => setShowDeleteConfirm(false)}
+          />
+          <div className="relative bg-white rounded-xl shadow-2xl max-w-sm w-full mx-4 p-6 animate-scale-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 rounded-full">
+                <AlertTriangle size={24} className="text-red-600" />
+              </div>
+              <h3 className="font-semibold text-gray-900">Delete Scheduled Post?</h3>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete this scheduled post? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={16} />
+                    Delete Post
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

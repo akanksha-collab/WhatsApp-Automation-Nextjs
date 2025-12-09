@@ -36,6 +36,11 @@ interface EntityInfo {
   tickerSymbol: string;
   allegations?: string;
   leadPlaintiffDate?: string;
+  classPeriodStart?: string;
+  classPeriodEnd?: string;
+  exchange?: string;
+  industry?: string;
+  caseType?: string;
 }
 
 interface ContentTabProps {

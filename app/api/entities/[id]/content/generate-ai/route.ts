@@ -8,6 +8,12 @@ import { generateImageAsBuffer } from '@/lib/gemini/client';
 interface GenerateAIRequest {
   prompt: string;
   imageSize?: '256' | '512' | '1K' | '2K';
+  caseType?: string;
+  exchange?: string;
+  ticker?: string;
+  leadPlaintiffDeadline?: string;
+  classPeriodStart?: string;
+  classPeriodEnd?: string;
 }
 
 // POST /api/entities/[id]/content/generate-ai
@@ -40,7 +46,16 @@ export async function POST(
 
   try {
     const body: GenerateAIRequest = await req.json();
-    const { prompt, imageSize } = body;
+    const { 
+      prompt, 
+      imageSize,
+      caseType,
+      exchange,
+      ticker,
+      leadPlaintiffDeadline,
+      classPeriodStart,
+      classPeriodEnd,
+    } = body;
 
     if (!prompt || typeof prompt !== 'string') {
       return NextResponse.json(
@@ -49,10 +64,47 @@ export async function POST(
       );
     }
 
+    // Parse ticker from entity if not provided in request
+    let finalExchange = exchange || 'NYSE/NASDAQ';
+    let finalTicker = ticker || entity.tickerSymbol || '';
+    
+    // Check if ticker contains exchange in parentheses, e.g., "(NASDAQ) TLX"
+    if (!exchange && entity.tickerSymbol) {
+      const tickerMatch = entity.tickerSymbol.match(/^\(([^)]+)\)\s*(.+)$/);
+      if (tickerMatch) {
+        finalExchange = tickerMatch[1];
+        finalTicker = tickerMatch[2].trim();
+      }
+    }
+
+    // Format date helper
+    const formatDate = (dateStr?: string | Date) => {
+      if (!dateStr) return 'TBD';
+      try {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      } catch {
+        return String(dateStr);
+      }
+    };
+
     // Generate image using Gemini
     const result = await generateImageAsBuffer({
       prompt,
       imageSize: imageSize || '1K',
+      temperature: 0,
+      topP: 0.95,
+      aspectRatio: '16:9',
+      overlayInfoBoxes: true,
+      infoBoxOptions: {
+        caseType: caseType || 'CASE UPDATE',
+        companyName: entity.companyName,
+        exchange: finalExchange,
+        ticker: finalTicker,
+        leadPlaintiffDeadline: leadPlaintiffDeadline || formatDate(entity.leadPlaintiffDate),
+        classPeriodStart: classPeriodStart || formatDate(entity.classPeriodStart),
+        classPeriodEnd: classPeriodEnd || formatDate(entity.classPeriodEnd),
+      },
     });
 
     if (!result.success || !result.buffer) {

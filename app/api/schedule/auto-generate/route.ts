@@ -16,15 +16,17 @@ export async function POST(req: Request) {
     
     if (mode === 'day' || targetDate) {
       // Generate for a single day
+      // targetDate is expected as YYYY-MM-DD string from client
       result = await generateDaySchedule({
         userId: session.user.id,
-        targetDate: targetDate ? new Date(targetDate) : undefined,
+        targetDate: targetDate || undefined,
       });
     } else {
       // Generate for the week
+      // weekStartDate is expected as YYYY-MM-DD string from client
       result = await generateWeeklySchedule({
         userId: session.user.id,
-        weekStartDate: weekStartDate ? new Date(weekStartDate) : undefined,
+        weekStartDate: weekStartDate || undefined,
       });
     }
 

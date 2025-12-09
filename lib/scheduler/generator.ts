@@ -15,17 +15,17 @@ import {
   mapEntityPriorityToTemplatePriority,
   EntityPriorityLevel 
 } from './template-matcher';
-import { addDays, startOfWeek, startOfDay, endOfDay, format, differenceInDays, isBefore, isAfter } from 'date-fns';
-import { toZonedTime } from 'date-fns-tz';
+import { addDays, startOfWeek, startOfDay, endOfDay, format, differenceInDays, isBefore, isAfter, parse } from 'date-fns';
+import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 
 interface GenerateScheduleParams {
   userId: string;
-  weekStartDate?: Date;
+  weekStartDate?: string; // YYYY-MM-DD format string
 }
 
 interface GenerateDayScheduleParams {
   userId: string;
-  targetDate?: Date;
+  targetDate?: string; // YYYY-MM-DD format string
 }
 
 export interface ScheduleGenerationResult {
@@ -41,26 +41,61 @@ export interface ScheduleGenerationResult {
 /**
  * Generate a unique key for tracking templates used per entity per day
  */
-function getEntityDayKey(entityId: string, date: Date): string {
-  return `${entityId}-${format(date, 'yyyy-MM-dd')}`;
+function getEntityDayKey(entityId: string, dateString: string): string {
+  return `${entityId}-${dateString}`;
+}
+
+/**
+ * Convert a date string (YYYY-MM-DD) to the start of day in a specific timezone.
+ * Returns the UTC Date that corresponds to midnight on that date in the given timezone.
+ */
+function getStartOfDayInTimezone(dateString: string, timezone: string): Date {
+  // Parse the date string as midnight in the specified timezone
+  const dateTimeString = `${dateString} 00:00`;
+  const localMidnight = parse(dateTimeString, 'yyyy-MM-dd HH:mm', new Date());
+  return fromZonedTime(localMidnight, timezone);
+}
+
+/**
+ * Convert a date string (YYYY-MM-DD) to the end of day in a specific timezone.
+ * Returns the UTC Date that corresponds to 23:59:59.999 on that date in the given timezone.
+ */
+function getEndOfDayInTimezone(dateString: string, timezone: string): Date {
+  // Parse the date string as end of day in the specified timezone
+  const dateTimeString = `${dateString} 23:59`;
+  const localEndOfDay = parse(dateTimeString, 'yyyy-MM-dd HH:mm', new Date());
+  return fromZonedTime(localEndOfDay, timezone);
 }
 
 /**
  * Check if an entity's deadline has passed for a given date.
  * Entity should not receive posts after its Lead Plaintiff Deadline.
+ * 
+ * @param dateString - Date in YYYY-MM-DD format (represents the calendar date in user's timezone)
+ */
+function isEntityExpiredForDateString(entity: IEntityDocument, dateString: string, timezone: string): boolean {
+  if (!entity.leadPlaintiffDate) return false;
+  
+  // Get the deadline as a YYYY-MM-DD string in user's timezone
+  const deadlineInTz = toZonedTime(new Date(entity.leadPlaintiffDate), timezone);
+  const deadlineDateString = format(deadlineInTz, 'yyyy-MM-dd');
+  
+  // Compare date strings directly (YYYY-MM-DD format sorts correctly)
+  return dateString > deadlineDateString;
+}
+
+/**
+ * Check if an entity's deadline has passed for a given UTC Date.
+ * Entity should not receive posts after its Lead Plaintiff Deadline.
  */
 function isEntityExpiredForDate(entity: IEntityDocument, date: Date, timezone: string): boolean {
   if (!entity.leadPlaintiffDate) return false;
   
-  // Get the deadline in user's timezone (end of deadline day)
-  const deadlineInTz = toZonedTime(new Date(entity.leadPlaintiffDate), timezone);
-  const deadlineEndOfDay = endOfDay(deadlineInTz);
-  
-  // Get the date being checked in user's timezone
+  // Convert the UTC date to user's timezone and get the date string
   const dateInTz = toZonedTime(date, timezone);
+  const dateString = format(dateInTz, 'yyyy-MM-dd');
   
-  // If the date is after the deadline's end of day, entity is expired for that date
-  return isAfter(dateInTz, deadlineEndOfDay);
+  return isEntityExpiredForDateString(entity, dateString, timezone);
 }
 
 /**
@@ -74,6 +109,8 @@ function isEntityExpiredForDate(entity: IEntityDocument, date: Date, timezone: s
  * 5. Within each priority, distribute equally (extra to sooner deadlines)
  * 6. For each slot, select template and content
  * 7. Create scheduled posts
+ * 
+ * @param targetDate - Date in YYYY-MM-DD format (represents the calendar date in user's timezone)
  */
 export async function generateDaySchedule({
   userId,
@@ -102,8 +139,19 @@ export async function generateDaySchedule({
   }
   
   // Determine target date (default to today in user's timezone)
-  const nowInUserTz = toZonedTime(new Date(), settings.timezone);
-  const scheduleDate = targetDate ? startOfDay(toZonedTime(targetDate, settings.timezone)) : startOfDay(nowInUserTz);
+  // If targetDate is provided as YYYY-MM-DD string, use it directly
+  // Otherwise, get today's date in user's timezone
+  let scheduleDateString: string;
+  if (targetDate) {
+    scheduleDateString = targetDate;
+  } else {
+    const nowInUserTz = toZonedTime(new Date(), settings.timezone);
+    scheduleDateString = format(nowInUserTz, 'yyyy-MM-dd');
+  }
+  
+  // Parse the date string for date-fns operations (for getting day name, etc.)
+  // This creates a Date at midnight local time, which is fine for date comparisons
+  const scheduleDate = parse(scheduleDateString, 'yyyy-MM-dd', new Date());
   const dayName = format(scheduleDate, 'EEEE').toLowerCase();
   
   // Get day settings
@@ -145,7 +193,7 @@ export async function generateDaySchedule({
   
   for (const entity of entities) {
     // Skip if deadline is before the schedule date
-    if (isEntityExpiredForDate(entity, scheduleDate, settings.timezone)) {
+    if (isEntityExpiredForDateString(entity, scheduleDateString, settings.timezone)) {
       skippedExpiredEntities++;
       continue;
     }
@@ -165,21 +213,27 @@ export async function generateDaySchedule({
   }
   
   // Delete only PENDING posts for this day (keep SENT and FAILED)
+  // Use timezone-aware date range for the query
+  const dayStartUtc = getStartOfDayInTimezone(scheduleDateString, settings.timezone);
+  const nextDayString = format(addDays(scheduleDate, 1), 'yyyy-MM-dd');
+  const dayEndUtc = getStartOfDayInTimezone(nextDayString, settings.timezone);
+  
   await ScheduledPost.deleteMany({
     userId,
     status: 'scheduled',
     isAutoGenerated: true,
     scheduledAt: {
-      $gte: startOfDay(scheduleDate),
-      $lt: addDays(startOfDay(scheduleDate), 1),
+      $gte: dayStartUtc,
+      $lt: dayEndUtc,
     },
   });
   
   // Allocate slots using the new ratio-based algorithm
+  // Pass the date string (YYYY-MM-DD) to ensure proper timezone handling
   const allocationResult = allocateSlots(
     validEntities,
     activeSlots,
-    scheduleDate,
+    scheduleDateString,
     settings.timezone
   );
   
@@ -207,7 +261,7 @@ export async function generateDaySchedule({
     const templatePriority = mapEntityPriorityToTemplatePriority(allocation.entity.priorityLevel as EntityPriorityLevel);
     
     // Track used templates per entity per day for same-day exclusion
-    const entityDayKey = getEntityDayKey(entityId, scheduleDate);
+    const entityDayKey = getEntityDayKey(entityId, scheduleDateString);
     const usedTemplateIds = usedTemplatesPerEntityDay.get(entityDayKey) || new Set<string>();
     
     const templateMatch = findBestMatchingTemplate(
@@ -325,6 +379,8 @@ export async function generateDaySchedule({
  * 6. Within each priority, distribute equally (extra to sooner deadlines)
  * 7. For each slot, select template and content
  * 8. Create scheduled posts
+ * 
+ * @param weekStartDate - Date in YYYY-MM-DD format (represents the Monday of the week in user's timezone)
  */
 export async function generateWeeklySchedule({
   userId,
@@ -364,21 +420,38 @@ export async function generateWeeklySchedule({
     };
   }
   
-  // Determine week start (Monday of current week)
-  const weekStart = weekStartDate || startOfWeek(new Date(), { weekStartsOn: 1 });
+  // Determine week start string (YYYY-MM-DD format)
+  // If weekStartDate is provided as YYYY-MM-DD string, use it directly
+  // Otherwise, get Monday of current week in user's timezone
+  let weekStartString: string;
+  if (weekStartDate) {
+    weekStartString = weekStartDate;
+  } else {
+    const nowInUserTz = toZonedTime(new Date(), settings.timezone);
+    const weekStart = startOfWeek(nowInUserTz, { weekStartsOn: 1 });
+    weekStartString = format(weekStart, 'yyyy-MM-dd');
+  }
+  
+  // Parse the week start string for date operations
+  const weekStartParsed = parse(weekStartString, 'yyyy-MM-dd', new Date());
   
   // Get "today" in user's timezone to skip past dates
   const nowInUserTz = toZonedTime(new Date(), settings.timezone);
-  const todayStart = startOfDay(nowInUserTz);
+  const todayString = format(nowInUserTz, 'yyyy-MM-dd');
   
   // Delete only PENDING posts for this week (keep SENT and FAILED)
+  // Use timezone-aware date range for the query
+  const weekStartUtc = getStartOfDayInTimezone(weekStartString, settings.timezone);
+  const weekEndString = format(addDays(weekStartParsed, 7), 'yyyy-MM-dd');
+  const weekEndUtc = getStartOfDayInTimezone(weekEndString, settings.timezone);
+  
   await ScheduledPost.deleteMany({
     userId,
     status: 'scheduled',
     isAutoGenerated: true,
     scheduledAt: {
-      $gte: weekStart,
-      $lt: addDays(weekStart, 7),
+      $gte: weekStartUtc,
+      $lt: weekEndUtc,
     },
   });
   
@@ -392,11 +465,13 @@ export async function generateWeeklySchedule({
   let totalSkippedExpiredEntities = 0;
   
   for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
-    const currentDate = addDays(weekStart, dayOffset);
+    const currentDate = addDays(weekStartParsed, dayOffset);
+    const currentDateString = format(currentDate, 'yyyy-MM-dd');
     const dayName = format(currentDate, 'EEEE').toLowerCase();
     
     // Skip days that are in the past (before today in user's timezone)
-    if (isBefore(currentDate, todayStart)) {
+    // Compare date strings directly (YYYY-MM-DD format sorts correctly)
+    if (currentDateString < todayString) {
       continue;
     }
     
@@ -413,7 +488,7 @@ export async function generateWeeklySchedule({
     
     for (const entity of entities) {
       // Skip if deadline is before this schedule date
-      if (isEntityExpiredForDate(entity, currentDate, settings.timezone)) {
+      if (isEntityExpiredForDateString(entity, currentDateString, settings.timezone)) {
         totalSkippedExpiredEntities++;
         continue;
       }
@@ -431,10 +506,11 @@ export async function generateWeeklySchedule({
     contentSelector.resetForNewDay();
     
     // Allocate slots using the ratio-based algorithm
+    // Pass the date string (YYYY-MM-DD) to ensure proper timezone handling
     const allocationResult = allocateSlots(
       validEntities,
       activeSlots,
-      currentDate,
+      currentDateString,
       settings.timezone
     );
     
@@ -457,7 +533,7 @@ export async function generateWeeklySchedule({
       const templatePriority = mapEntityPriorityToTemplatePriority(allocation.entity.priorityLevel as EntityPriorityLevel);
       
       // Get the exclude list for this entity on this day
-      const entityDayKey = getEntityDayKey(entityId, currentDate);
+      const entityDayKey = getEntityDayKey(entityId, currentDateString);
       const usedTemplateIds = usedTemplatesPerEntityDay.get(entityDayKey) || new Set<string>();
       
       // Find best matching template

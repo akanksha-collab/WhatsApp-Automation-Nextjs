@@ -18,6 +18,11 @@ interface EntityInfo {
   tickerSymbol: string;
   allegations?: string;
   leadPlaintiffDate?: string;
+  classPeriodStart?: string;
+  classPeriodEnd?: string;
+  exchange?: string;
+  industry?: string;
+  caseType?: string;
 }
 
 interface GenerateAIImageModalProps {
@@ -28,13 +33,6 @@ interface GenerateAIImageModalProps {
   onSuccess: () => void;
 }
 
-const IMAGE_STYLES = [
-  { value: 'professional', label: 'Professional / Legal' },
-  { value: 'corporate', label: 'Corporate' },
-  { value: 'financial', label: 'Financial' },
-  { value: 'news', label: 'News Style' },
-];
-
 export default function GenerateAIImageModal({
   isOpen,
   onClose,
@@ -43,14 +41,13 @@ export default function GenerateAIImageModal({
   onSuccess,
 }: GenerateAIImageModalProps) {
   const [prompt, setPrompt] = useState('');
-  const [style, setStyle] = useState('professional');
   const [guidelines, setGuidelines] = useState('');
   
   const [isLoadingGuidelines, setIsLoadingGuidelines] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [wasGenerated, setWasGenerated] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   // Fetch guidelines on mount
   useEffect(() => {
@@ -82,37 +79,53 @@ export default function GenerateAIImageModal({
   };
 
   const generatePrompt = () => {
-    const parts: string[] = [];
+    // Parse ticker symbol - format can be "(NASDAQ) TLX" or just "TLX"
+    let exchange = 'NYSE/NASDAQ';
+    let ticker = entity.tickerSymbol || '';
     
-    // Main description
-    parts.push(`Create a professional image for a securities class action lawsuit about ${entity.companyName}`);
-    
-    if (entity.tickerSymbol) {
-      parts[0] += ` (${entity.tickerSymbol})`;
-    }
-    parts[0] += '.';
-    
-    // Add allegations if present
-    if (entity.allegations) {
-      const summary = entity.allegations.length > 200 
-        ? entity.allegations.substring(0, 200) + '...'
-        : entity.allegations;
-      parts.push(`Case summary: ${summary}`);
+    // Check if ticker contains exchange in parentheses, e.g., "(NASDAQ) TLX"
+    const tickerMatch = ticker.match(/^\(([^)]+)\)\s*(.+)$/);
+    if (tickerMatch) {
+      exchange = tickerMatch[1]; // Extract exchange from parentheses
+      ticker = tickerMatch[2].trim(); // Extract actual ticker symbol
     }
     
-    // Add guidelines if present
-    if (guidelines) {
-      parts.push(`Guidelines: ${guidelines}`);
-    }
-    
-    // Default instructions
-    parts.push('Design the image as a wide 16:9 hero banner for a law-firm style case update. ' +
-    'Keep the left one-third of the image darker, simpler and less busy to allow for text overlay, ' +
-    'and use the right side for a strong illustrative scene related to corporate, financial, technology or healthcare themes. ' +
-    'The style should be realistic, clean, modern and trustworthy, with professional colors (dark blue, charcoal, gray, muted red/orange accents). ' +
-    'Avoid detailed text in the image itself, avoid logos and identifiable faces, and make sure the image looks appropriate for WhatsApp and social media legal updates.');
-    
-    setPrompt(parts.join('\n\n'));
+    const industry = entity.industry || 'Determine based on company name';
+
+    const corePrompt = `Create a photorealistic hero banner background image for a securities class action lawsuit legal update.
+
+COMPANY: ${entity.companyName} (${exchange}: ${ticker})
+First, use your knowledge to understand what ${entity.companyName} does - their products, services, and industry. Then generate a background scene that visually represents their actual business.
+
+INDUSTRY: ${industry}
+
+BACKGROUND IMAGE REQUIREMENTS:
+Generate a FULL-BLEED photorealistic scene representing the company's industry. The entire image should show the relevant scene - do NOT leave any dark/empty areas. The bottom-left area should have slightly darker tones to accommodate text overlay.
+
+INDUSTRY VISUAL EXAMPLES:
+- Healthcare/Biotech/Pharma → vaccine vials on reflective surface with virus/cell particles floating, laboratory setting, blue-teal color tones
+- Technology/Software → modern tech workspace, servers, screens with data
+- Cybersecurity → dark server room corridor with red/blue LED lights
+- Finance/Banking → trading floor, financial screens, city skyline
+- Advertising/Marketing → creative agency, presentation screens, meeting rooms
+
+VISUAL STYLE:
+- Photorealistic background - looks like real stock photography
+- Professional, clean, modern aesthetic
+- High production value suitable for legal/financial marketing
+- Cinematic depth of field on the background
+- Leave the bottom-left area slightly darker or with less detail for text overlay
+
+MUST AVOID:
+- NO recognizable faces or identifiable people
+- NO visible hands
+- NO text or typography in the image
+- NO Company logos or branding
+- NO overlays, boxes, or badges
+
+${guidelines ? `\n---\nADDITIONAL GUIDELINES:\n${guidelines}\n---` : ''}`;
+
+    setPrompt(corePrompt);
   };
 
   const handleGenerate = async () => {
@@ -123,13 +136,51 @@ export default function GenerateAIImageModal({
 
     setIsGenerating(true);
     setError('');
-    setGeneratedImageUrl(null);
+    setProgress(0);
+
+    // Simulate progress while generating
+    const progressInterval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 90) return 90; // Cap at 90% until complete
+        const next = prev + Math.random() * 15;
+        return Math.min(next, 90); // Never exceed 90%
+      });
+    }, 500);
+
+    // Parse ticker symbol - format can be "(NASDAQ) TLX" or just "TLX"
+    let exchange = 'NYSE/NASDAQ';
+    let ticker = entity.tickerSymbol || '';
+    
+    const tickerMatch = ticker.match(/^\(([^)]+)\)\s*(.+)$/);
+    if (tickerMatch) {
+      exchange = tickerMatch[1];
+      ticker = tickerMatch[2].trim();
+    }
+
+    // Format dates
+    const formatDate = (dateStr?: string) => {
+      if (!dateStr) return 'TBD';
+      try {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      } catch {
+        return dateStr;
+      }
+    };
 
     try {
       const res = await fetch(`/api/entities/${entityId}/content/generate-ai`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, style }),
+        body: JSON.stringify({ 
+          prompt,
+          caseType: entity.caseType || 'CASE UPDATE',
+          exchange,
+          ticker,
+          leadPlaintiffDeadline: formatDate(entity.leadPlaintiffDate),
+          classPeriodStart: formatDate(entity.classPeriodStart),
+          classPeriodEnd: formatDate(entity.classPeriodEnd),
+        }),
       });
 
       const data = await res.json();
@@ -138,10 +189,13 @@ export default function GenerateAIImageModal({
         throw new Error(data.error || 'Failed to generate image');
       }
 
-      setGeneratedImageUrl(data.contentItem.fileUrl);
+      clearInterval(progressInterval);
+      setProgress(100);
       setWasGenerated(true);
       onSuccess(); // Refresh the content list
     } catch (err) {
+      clearInterval(progressInterval);
+      setProgress(0);
       setError(err instanceof Error ? err.message : 'Failed to generate image');
     } finally {
       setIsGenerating(false);
@@ -150,10 +204,9 @@ export default function GenerateAIImageModal({
 
   const handleClose = () => {
     setPrompt('');
-    setStyle('professional');
-    setGeneratedImageUrl(null);
     setError('');
     setWasGenerated(false);
+    setProgress(0);
     onClose();
   };
 
@@ -254,55 +307,41 @@ export default function GenerateAIImageModal({
             </p>
           </div>
 
-          {/* Style Selector */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Image Style
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {IMAGE_STYLES.map((s) => (
-                <button
-                  key={s.value}
-                  onClick={() => setStyle(s.value)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    style === s.value
-                      ? 'bg-whatsapp-green text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          {/* Generation Status */}
+          {(isGenerating || wasGenerated) && (
+            <div className="bg-gray-50 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700">
+                  {isGenerating ? 'Generating Image...' : 'Generation Complete'}
+                </span>
+                <span className="text-sm font-semibold text-whatsapp-dark-teal">
+                  {Math.round(progress)}%
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    progress === 100 
+                      ? 'bg-green-500' 
+                      : 'bg-gradient-to-r from-purple-500 to-pink-500'
                   }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Preview Area */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Preview
-            </label>
-            <div className="border border-gray-200 rounded-xl overflow-hidden bg-gray-50 min-h-[200px] flex items-center justify-center">
-              {isGenerating ? (
-                <div className="text-center p-8">
-                  <Loader2 size={40} className="animate-spin text-whatsapp-green mx-auto mb-3" />
-                  <p className="text-sm text-gray-600">Generating image...</p>
-                  <p className="text-xs text-gray-400 mt-1">This may take a few seconds</p>
-                </div>
-              ) : generatedImageUrl ? (
-                <img
-                  src={generatedImageUrl}
-                  alt="Generated AI Image"
-                  className="max-w-full max-h-[400px] object-contain"
+                  style={{ width: `${progress}%` }}
                 />
-              ) : (
-                <div className="text-center p-8">
-                  <Sparkles size={40} className="text-gray-300 mx-auto mb-3" />
-                  <p className="text-sm text-gray-500">No image yet</p>
-                  <p className="text-xs text-gray-400">Click &quot;Generate&quot; to create an image</p>
-                </div>
+              </div>
+              {isGenerating && (
+                <p className="text-xs text-gray-500 mt-2 flex items-center gap-2">
+                  <Loader2 size={12} className="animate-spin" />
+                  This may take a few seconds...
+                </p>
+              )}
+              {wasGenerated && !isGenerating && (
+                <p className="text-xs text-green-600 mt-2 flex items-center gap-2">
+                  <Check size={12} />
+                  Image generated and saved to content library
+                </p>
               )}
             </div>
-          </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -330,7 +369,7 @@ export default function GenerateAIImageModal({
                   <Loader2 size={18} className="animate-spin" />
                   Generating...
                 </>
-              ) : generatedImageUrl ? (
+              ) : wasGenerated ? (
                 <>
                   <RefreshCw size={18} />
                   Regenerate

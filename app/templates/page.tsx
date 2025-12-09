@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { Plus, Edit, Trash2, Image, Video, FileText, Link as LinkIcon, Check, AlertCircle, ChevronDown, Zap, ArrowUp, Minus, ArrowDown } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Plus, Edit, Trash2, Image, Video, FileText, Link as LinkIcon, Check, AlertCircle, ChevronDown, Zap, ArrowUp, Minus, ArrowDown, Search, Filter, X } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 
 type TemplatePriority = 'urgent' | 'high' | 'medium' | 'low';
@@ -32,6 +32,16 @@ const PRIORITY_OPTIONS: { value: TemplatePriority; label: string; icon: React.El
   { value: 'high', label: 'High', icon: ArrowUp, color: 'text-orange-600', bgColor: 'bg-orange-100' },
   { value: 'medium', label: 'Medium', icon: Minus, color: 'text-blue-600', bgColor: 'bg-blue-100' },
   { value: 'low', label: 'Low', icon: ArrowDown, color: 'text-gray-600', bgColor: 'bg-gray-100' },
+];
+
+const ALL_CONTENT_TYPES = [
+  { value: 'all', label: 'All Types' },
+  ...CONTENT_TYPES,
+];
+
+const ALL_PRIORITY_OPTIONS = [
+  { value: 'all', label: 'All Priorities' },
+  ...PRIORITY_OPTIONS.map(p => ({ value: p.value, label: p.label })),
 ];
 
 const PLACEHOLDER_GROUPS = [
@@ -84,6 +94,12 @@ export default function TemplatesPage() {
   const [error, setError] = useState('');
   const [showPlaceholderDropdown, setShowPlaceholderDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Search and filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterContentType, setFilterContentType] = useState('all');
+  const [filterPriority, setFilterPriority] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -249,8 +265,34 @@ export default function TemplatesPage() {
     );
   };
 
+  // Filter templates based on search and filters
+  const filteredTemplates = useMemo(() => {
+    return templates.filter(template => {
+      // Search filter
+      const matchesSearch = searchQuery === '' || 
+        template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        template.template.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      // Content type filter
+      const matchesContentType = filterContentType === 'all' || template.contentType === filterContentType;
+      
+      // Priority filter
+      const matchesPriority = filterPriority === 'all' || template.priority === filterPriority;
+      
+      return matchesSearch && matchesContentType && matchesPriority;
+    });
+  }, [templates, searchQuery, filterContentType, filterPriority]);
+
+  const hasActiveFilters = searchQuery !== '' || filterContentType !== 'all' || filterPriority !== 'all';
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setFilterContentType('all');
+    setFilterPriority('all');
+  };
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Page header */}
       <header className="flex items-center justify-between">
         <div>
@@ -270,6 +312,129 @@ export default function TemplatesPage() {
         </button>
       </header>
 
+      {/* Search and Filters */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+        <div className="flex flex-col md:flex-row gap-4">
+          {/* Search Input */}
+          <div className="flex-1 relative">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search templates by name or content..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent transition-all"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+          
+          {/* Filter Toggle Button (Mobile) */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`md:hidden flex items-center gap-2 px-4 py-2.5 border rounded-lg font-medium transition-colors ${
+              hasActiveFilters 
+                ? 'border-whatsapp-green bg-whatsapp-light-green text-whatsapp-dark-teal' 
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <Filter size={18} />
+            Filters
+            {hasActiveFilters && (
+              <span className="bg-whatsapp-green text-white text-xs px-1.5 py-0.5 rounded-full">
+                {(filterContentType !== 'all' ? 1 : 0) + (filterPriority !== 'all' ? 1 : 0)}
+              </span>
+            )}
+          </button>
+
+          {/* Desktop Filters */}
+          <div className="hidden md:flex items-center gap-3">
+            <select
+              value={filterContentType}
+              onChange={(e) => setFilterContentType(e.target.value)}
+              className="px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+            >
+              {ALL_CONTENT_TYPES.map(type => (
+                <option key={type.value} value={type.value}>{type.label}</option>
+              ))}
+            </select>
+
+            <select
+              value={filterPriority}
+              onChange={(e) => setFilterPriority(e.target.value)}
+              className="px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+            >
+              {ALL_PRIORITY_OPTIONS.map(p => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="flex items-center gap-1 px-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <X size={16} />
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Mobile Filters Dropdown */}
+        {showFilters && (
+          <div className="md:hidden mt-4 pt-4 border-t border-gray-100 space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5 uppercase">Content Type</label>
+              <select
+                value={filterContentType}
+                onChange={(e) => setFilterContentType(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+              >
+                {ALL_CONTENT_TYPES.map(type => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5 uppercase">Priority</label>
+              <select
+                value={filterPriority}
+                onChange={(e) => setFilterPriority(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-whatsapp-green focus:border-transparent bg-white text-sm"
+              >
+                {ALL_PRIORITY_OPTIONS.map(p => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg transition-colors"
+              >
+                <X size={16} />
+                Clear All Filters
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Results count */}
+        {templates.length > 0 && (
+          <div className="mt-3 text-sm text-gray-500">
+            Showing {filteredTemplates.length} of {templates.length} templates
+            {hasActiveFilters && ' (filtered)'}
+          </div>
+        )}
+      </div>
+
       {/* Templates Grid */}
       {isLoading ? (
         <div className="text-center py-12 text-gray-500">Loading...</div>
@@ -288,9 +453,24 @@ export default function TemplatesPage() {
             Create Template
           </button>
         </div>
+      ) : filteredTemplates.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center">
+          <Search size={48} className="mx-auto text-gray-400 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No matching templates</h3>
+          <p className="text-gray-600 mb-6">
+            Try adjusting your search or filter criteria
+          </p>
+          <button
+            onClick={clearFilters}
+            className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+          >
+            <X size={20} />
+            Clear Filters
+          </button>
+        </div>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {templates.map((template) => (
+          {filteredTemplates.map((template) => (
             <div
               key={template._id}
               className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow"
